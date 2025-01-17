@@ -4,10 +4,12 @@ import pandas
 import numpy
 from sklearn import metrics
 
+# TODO: Revisar todo este script para mejorarlo y optimizarlo
 
 def predict_with_working_point(
     pred_probability: numpy.ndarray, working_point: float = 0.5
 ) -> numpy.ndarray:
+    # TODO: Revisar descripción
     """Predict the class for each sample using the indicated probability working point
 
     Transforms the probabilities into predictions using the working point. Classifying as 'class 1' those probabilities
@@ -35,6 +37,7 @@ def compute_metrics(
     y_pred: typing.Union[numpy.ndarray, pandas.Series],
     verbose: bool = False,
 ) -> typing.Dict[str, object]:
+    # TODO: Revisar descripción
     """Compute some metrics out of the comparison between y_true and y_pred
 
     The computed metrics are the following:
@@ -117,6 +120,7 @@ def metrics_scanning_working_points(
     figsize: typing.Tuple[int] = (9, 5),
     verbose: bool = False,
 ) -> typing.Union[float, numpy.ndarray, typing.Dict[str, numpy.ndarray]]:
+    # TODO: Revisar descripción
     """A function to compute a list of metrics for a list of working points
 
     Iterates the function 'compute_metrics' along the operational range of working points to characterize the behaviour

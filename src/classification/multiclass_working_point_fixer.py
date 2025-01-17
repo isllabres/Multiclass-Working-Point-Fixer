@@ -14,6 +14,7 @@ from typing import List
 
 
 class multiclass_Working_Point_Fixer(torch.nn.Module):
+    # TODO: Revisar descripción
     """Multiclass working point fixer.
 
     This class allows you to find the best working point for maximizing F1 score.
@@ -67,10 +68,11 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
         self.vector_w = Parameter(torch.ones(self.input_size), True)  # El True activa el requires_grad
         self.multiclass_f1_average = model_params['multiclass_f1_average']
 
-        self.optimizer = RMSprop(self.parameters(),
-                                 lr=self.model_params["learning_rate"],
-                                 momentum=self.model_params["momentum"],
-                                 centered=self.model_params["centered"])
+        self.optimizer = RMSprop(
+            self.parameters(),
+            lr=self.model_params["learning_rate"],
+            momentum=self.model_params["momentum"],
+            centered=self.model_params["centered"])
 
         self.train_loss = numpy.array([])
         self.val_loss = numpy.array([])
@@ -86,6 +88,7 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
 
     def set_vector_w(self,
                      tensor_value: torch.Tensor) -> None:
+        # TODO: Revisar descripción
         """Set the value of vector_w
 
         Args:
@@ -99,6 +102,7 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
 
     def forward(self,
                 x_input: torch.Tensor) -> torch.Tensor:
+        # TODO: Revisar descripción
         """Class forward method.
 
         Performs an Element-wise multiplication between the input data
@@ -119,6 +123,7 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
     @staticmethod
     def soft_p_f1_loss(target: torch.Tensor,
                        model_output: torch.Tensor) -> torch.Tensor:
+        # TODO: Revisar descripción
         """Computes the quadratic soft F1 loss.
 
         The soft F1 or probabilistic F1 is differentiable, so you can turn
@@ -150,8 +155,10 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
     def setup_dataloader(self,
                          train_dataset: TensorDataset,
                          val_dataset: TensorDataset,
-                         shuffle: bool = False) -> (torch.utils.data.DataLoader,
-                                                    torch.utils.data.DataLoader):
+                         shuffle: bool = False) -> tuple[
+                             torch.utils.data.DataLoader,
+                             torch.utils.data.DataLoader]:
+        # TODO: Revisar descripción
         """Returns the pytorch Dataloader for train and validation partition.
 
         Args:
@@ -183,6 +190,7 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
                        targets: torch.Tensor,
                        inputs: torch.Tensor,
                        outputs: torch.Tensor) -> None:
+        # TODO: Revisar descripción
         """Calculates the original F1 and the achieved F1. It also
         extends the F1 and F1_w arrays.
 
@@ -216,6 +224,7 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
     def compute_imbalance(self,
                           train_partition: pandas.DataFrame,
                           test_partition: pandas.DataFrame) -> None:
+        # TODO: Revisar descripción
         """Calculate imbalance per class.
 
         Args:
@@ -247,6 +256,7 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
             plot: boolean indicating whether to plot or not train-val losses
             and F1 vs F1w scores.
         """
+        # TODO: Revisar descripción
 
         train_loader, val_loader = self.setup_dataloader(
             train_dataset=TensorDataset(torch.from_numpy(x_tr), torch.from_numpy(y_tr)),
@@ -348,6 +358,7 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
                              x: numpy.array,
                              y: numpy.array,
                              c_names: List = None) -> None:
+        # TODO: Revisar descripción
         """Plot F1 vs F1w scores per label
 
         Args:
@@ -393,6 +404,7 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
     def plot_weights(self,
                      c_names: List = None,
                      normalized: str = False) -> None:
+        # TODO: Revisar descripción
         """Plot model weights.
 
         Args:
