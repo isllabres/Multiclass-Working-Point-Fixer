@@ -13,7 +13,8 @@ def load_example_data(data_mode: str, data_path: str):
         data_path (str): The path to the directory containing the data files
 
     Returns:
-        tuple: A tuple containing the training true labels, training predicted labels, testing true labels, and testing predicted labels
+        tuple: A tuple containing the training true labels, training predicted labels, testing true labels, 
+        and testing predicted labels
     """
     if data_mode == 'binary':
         y_train_true = pandas.read_csv(f"{data_path}/raw/binary_y_train_true.csv")
