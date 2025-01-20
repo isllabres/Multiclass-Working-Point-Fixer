@@ -54,8 +54,8 @@ $$
 \text{soft\_pF1\_loss} = 1 - \text{soft\_pF1}
 $$
 
-<img src='../data/images/soft_pf1_loss.png'alt='Soft pf1 loss'>
-<p align="left"><em>Figure 3: Soft probabilistic F1 Loss</em></p>
+<img src='../data/images/soft_pf1_loss.png' alt='Soft pf1 loss'>
+<p align="left"><em>Figure 3: W vector trainning</em></p>
 
 In the image aboce, Y_true represents the true sample labels, a matrix of b samples and n classes, each sample belong just to one class. Y_pred represents the model probability predictions, a matrix of b samples and n classes, where each sample has n different probabilities (one per class, that sum up to one). 
 
