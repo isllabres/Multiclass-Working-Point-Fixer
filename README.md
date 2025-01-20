@@ -51,7 +51,7 @@ In this repository, we design a torch module that finds a weight vector that, wh
 This achievement is done by trainning the weight vector, minimizing a customized loss via backpropagation. This customized loss is built using the probabilistic F1-score, a probabilistic implementation of the F1-score (soft_pF1) in order to be derivative (referenciar paper). This way, wen convergence criteria is achieved, we obtain a weighted vector that minimizes the loss and maximizes de F1 score.
 
 $$
-\text{soft\_pF1\_loss} = 1 - \text{soft\_pF1}
+\text{soft_pF1_loss} = 1 - \text{soft_pF1}
 $$
 
 <img src='data/images/soft_pf1_loss.png' alt='Soft pf1 loss'>
