@@ -21,10 +21,10 @@ When processing the probabilities outputs, using the default working point (0.5)
 
 Let's see an example:
 
-<img src='../data/images/train_prec_recall_f1.png' alt='Training Precision, Recall, and F1-Score'>
+<img src='data/images/train_prec_recall_f1.png' alt='Training Precision, Recall, and F1-Score'>
 <p align="left"><em>Figure 1: Training Precision, Recall, and F1-Score</em></p>
 
-<img src='../data/images/val_prec_recall_f1.png' alt='Validation Precision, Recall, and F1-Score'>
+<img src='data/images/val_prec_recall_f1.png' alt='Validation Precision, Recall, and F1-Score'>
 <p align="left"><em>Figure 2: Validation Precision, Recall, and F1-Score</em></p>
 
 On the other hand, in multiclass classification problems, it's hard to decide which working point to use since each sample can belong to one of N classes, each one with it's own probability.
@@ -54,7 +54,7 @@ $$
 \text{soft\_pF1\_loss} = 1 - \text{soft\_pF1}
 $$
 
-<img src='../data/images/soft_pf1_loss.png' alt='Soft pf1 loss'>
+<img src='data/images/soft_pf1_loss.png' alt='Soft pf1 loss'>
 <p align="left"><em>Figure 3: W vector trainning</em></p>
 
 In the image aboce, Y_true represents the true sample labels, a matrix of b samples and n classes, each sample belong just to one class. Y_pred represents the model probability predictions, a matrix of b samples and n classes, where each sample has n different probabilities (one per class, that sum up to one). 
@@ -73,7 +73,7 @@ The process for trainning the W vector is similar to any NN and is the following
 
 Since this is a vectorial way of searching for the optimal woriking point, must work also in binary problems. Let's check the following graph, obtained from the same example in Figure 1 and 2 in the introduction:
 
-<img src='../data/images/train_val_binary_verification.png' alt='Train and Val losses, and F1-score comparison'>
+<img src='data/images/train_val_binary_verification.png' alt='Train and Val losses, and F1-score comparison'>
 <p align="center"><em>Figure 4: Train and Validation partition Loss. Default working point F1-score vs W vector F1-score</em></p>
 
 As we can see, the optimal point for both train and validation partition, achieve an F1-score that coindice with the manual working point sweeping in figures 1 and 2:
