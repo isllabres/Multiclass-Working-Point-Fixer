@@ -331,22 +331,29 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
                     f"Train F1w: {self.train_f1_w_scores[-1]:.5f}. Val F1w: {self.val_f1_w_scores[-1]:.5f}")
 
         if plot:
-            plt.figure(figsize=(10, 5))
-            plt.plot(range(len(self.train_loss)), self.train_loss, label='Train loss')
-            plt.plot(range(len(self.val_loss)), self.val_loss, label='val loss')
-            plt.title("Train and Val losses")
-            plt.xlabel("Epochs")
-            plt.legend()
-            plt.show()
+            import plotly.graph_objects as go
 
-            plt.figure(figsize=(10, 5))
-            plt.plot(range(len(self.train_f1_scores)), self.train_f1_scores, 'b', label='Train F1')
-            plt.plot(range(len(self.val_f1_scores)), self.val_f1_scores, 'g', label='val F1')
-            plt.plot(range(len(self.train_f1_w_scores)), self.train_f1_w_scores, 'b--', label='Train F1w')
-            plt.plot(range(len(self.val_f1_w_scores)), self.val_f1_w_scores, 'g--', label='val F1w')
-            plt.title("Train and Val F1 and F1w")
-            plt.xlabel("Epochs")
-            plt.legend()
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=list(range(len(self.train_loss))),
+                                     y=self.train_loss, mode='lines',
+                                     name='Train loss'))
+            fig.add_trace(go.Scatter(x=list(range(len(self.val_loss))),
+                                     y=self.val_loss, mode='lines',
+                                     name='Val loss'))
+            fig.update_layout(title='Train and Val losses', xaxis_title='Epochs', yaxis_title='Loss')
+            fig.show()
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=list(range(len(self.train_f1_scores))), y=self.train_f1_scores,
+                                     mode='lines', name='Train F1', line=dict(color='blue')))
+            fig.add_trace(go.Scatter(x=list(range(len(self.val_f1_scores))), y=self.val_f1_scores,
+                                     mode='lines', name='Val F1', line=dict(color='green')))
+            fig.add_trace(go.Scatter(x=list(range(len(self.train_f1_w_scores))), y=self.train_f1_w_scores,
+                                     mode='lines', name='Train F1w', line=dict(color='blue', dash='dash')))
+            fig.add_trace(go.Scatter(x=list(range(len(self.val_f1_w_scores))), y=self.val_f1_w_scores,
+                                     mode='lines', name='Val F1w', line=dict(color='green', dash='dash')))
+            fig.update_layout(title='Train and Val F1 and F1w', xaxis_title='Epochs', yaxis_title='Score')
+            fig.show()
 
     def plot_class_f1_scores(self,
                              x: numpy.array,
