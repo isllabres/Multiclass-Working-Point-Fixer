@@ -78,12 +78,8 @@ def compute_metrics(
     )
 
     if verbose:
-        print(
-            f"Acc ones:      {numpy.round(tp / (tp + fn), 4)} || tp: {tp} of {tp + fn} ones"
-        )
-        print(
-            f"Acc zeros:     {numpy.round(tn / (tn + fp), 4)} || tn: {tn} of {tn + fp} ones"
-        )
+        print(f"Acc ones:      {numpy.round(tp / (tp + fn), 4)} || tp: {tp} of {tp + fn} ones")
+        print(f"Acc zeros:     {numpy.round(tn / (tn + fp), 4)} || tn: {tn} of {tn + fp} ones")
         print(f"Acc:           {numpy.round(acc, 4)}")
         print(f"ap1:           {numpy.round(ap1, 4)}")
         print(f"ap0:           {numpy.round(ap0, 4)}")
