@@ -291,7 +291,7 @@ def metrics_scanning_working_points_plotly(
     return results
 
 
-def metrics_scanning_working_points(
+def metrics_scanning_working_points_matplotlib(
     pred_proba: typing.Union[numpy.ndarray, pandas.Series],
     y_true: typing.Union[numpy.ndarray, pandas.Series],
     first_working_point: float,
