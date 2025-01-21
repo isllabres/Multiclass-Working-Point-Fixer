@@ -238,6 +238,7 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
             y_tr: numpy.ndarray,
             x_tst: numpy.ndarray,
             y_tst: numpy.ndarray,
+            verbose: bool = False,
             plot: bool = False) -> None:
         """Fit method.
 
@@ -322,10 +323,12 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
                                     outputs=val_model_output_hard)
                 self.train()
 
-            print(f"Epoch {index_epoch:2}/{self.model_params['num_epochs']}. "
-                  f"Train Loss: {epoch_train_loss.mean():.5f}. Val Loss: {epoch_val_loss.mean():.5f} "
-                  f"Train F1: {self.train_f1_scores[-1]:.5f}. Val F1: {self.val_f1_scores[-1]:.5f}. "
-                  f"Train F1w: {self.train_f1_w_scores[-1]:.5f}. Val F1w: {self.val_f1_w_scores[-1]:.5f}")
+            if verbose:
+                print(
+                    f"Epoch {index_epoch:2}/{self.model_params['num_epochs']}. "
+                    f"Train Loss: {epoch_train_loss.mean():.5f}. Val Loss: {epoch_val_loss.mean():.5f} "
+                    f"Train F1: {self.train_f1_scores[-1]:.5f}. Val F1: {self.val_f1_scores[-1]:.5f}. "
+                    f"Train F1w: {self.train_f1_w_scores[-1]:.5f}. Val F1w: {self.val_f1_w_scores[-1]:.5f}")
 
         if plot:
             plt.figure(figsize=(10, 5))
