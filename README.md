@@ -8,14 +8,13 @@ This repository contains the `multiclass_Working_Point_Fixer` class, which is de
 - [Usage](#usage)
 - [Methods](#methods)
 - [Examples](#examples)
-- [Contributing](#contributing)
-- [License](#license)
+- [References](#references)
 
 ## Methodology
 
 ### Introduction
 
-In binary classification problems, using standard metrics like accuracy can be misleading because they do not account for class imbalance effectively. Other metrics such as Precision, Recall or its harmonic mean, the F1-score, can focus on the performance across classes.
+In binary classification problems, using standard metrics like accuracy can be missleading because they do not account for class imbalance effectively. Other metrics such as Precision, Recall or its harmonic mean, the F1-score, can focus on the performance across classes.
 
 When processing the probability outputs, using the default working point (0.5) to decide whether the sample belongs to class 0 or class 1 might not always be the best decision. This can be easily handled by sweeping the working point and choosing the one that satisfies the problem necessities, commonly, seeking to maximize the F1-score.
 
