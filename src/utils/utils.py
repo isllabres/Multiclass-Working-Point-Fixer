@@ -5,6 +5,19 @@ import pandas
 
 def soft_p_f1_loss(target: torch.Tensor,
                    model_output: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the soft F1 loss between the target and model output tensors.
+    The soft F1 loss is calculated as 1 - F1 score, where the F1 score is the harmonic mean of precision and recall.
+    This loss function is useful for multi-class classification problems.
+    Args:
+        target (torch.Tensor): A tensor of ground truth labels with shape (batch_size, num_classes).
+        model_output (torch.Tensor): A tensor of model predictions with shape (batch_size, num_classes).
+    Returns:
+        torch.Tensor: A scalar tensor representing the soft F1 loss.
+    Notes:
+        - The F1 score is computed for each class and then averaged (macro average).
+        - An epsilon value is added to the denominator to avoid division by zero.
+        """
     epsilon = 1e-7
 
     p_tp = (target * model_output).sum(axis=0).to(torch.float32)
@@ -24,7 +37,15 @@ def soft_p_f1_loss(target: torch.Tensor,
 def soft_p_f1_loss_wp(
     model_output: torch.Tensor, target: torch.Tensor, working_point: float
 ) -> torch.Tensor:
-
+    """
+    Computes the soft F1 loss for a given working point.
+    Args:
+        model_output (torch.Tensor): The output from the model, expected to be a tensor of shape (batch_size,).
+        target (torch.Tensor): The ground truth labels, expected to be a tensor of shape (batch_size,).
+        working_point (float): The working point to adjust the loss calculation.
+    Returns:
+        torch.Tensor: The computed soft F1 loss.
+    """
     epsilon = 1e-7
 
     target_multiclass = torch.zeros((target.shape[0], 2))
@@ -74,6 +95,15 @@ def soft_p_f1_loss_wp(
 
 
 def compute_proba_f1(y_true: numpy.ndarray, pred_proba: numpy.ndarray, working_point: float):
+    """
+    Compute the probabilistic F1 score for probabilistic predictions with a given working point adjustment.
+    Args:
+        y_true (numpy.ndarray): True binary labels.
+        pred_proba (numpy.ndarray): Predicted probabilities for the positive class.
+        working_point (float): Working point to adjust the decision threshold.
+    Returns:
+        float: The computed F1 score.
+    """
     epsilon = 1e-7
 
     y_true_reshape = y_true.values.copy().astype(float).ravel()
