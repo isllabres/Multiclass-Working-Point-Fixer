@@ -436,6 +436,20 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
             )
             fig.show()
 
+    def predict(self, x: numpy.ndarray) -> numpy.ndarray:
+        """Predict method.
+
+        Args:
+            x: numpy array with the input data.
+
+        Returns:
+            numpy array with the predicted output.
+        """
+        with torch.no_grad():
+            x_tensor = torch.from_numpy(x)
+            output = self.forward(x_tensor)
+            return output.numpy()
+
     def plot_class_f1_scores(
         self, x: numpy.array, y: numpy.array, c_names: List = None, plot_title: str = ""
     ) -> None:
