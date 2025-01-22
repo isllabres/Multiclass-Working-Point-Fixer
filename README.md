@@ -70,7 +70,8 @@ The process for training the W vector is similar to any NN and is the following:
 
 Since this is a vectorial way of searching for the optimal working point, it must work also in binary problems. Let's check the following graph, obtained from the same example in Figure 1 and 2 in the introduction:
 
-<img src='data/images/train_val_binary_verification.png' alt='Train and Val losses, and F1-score comparison'>
+<img src='data/images/train_val_binary_verification.png' alt='Train and Val losses'>
+<img src='data/images/train_val_binary_verification_f1.png' alt='F1-score comparison'>
 <p align="center"><em>Figure 4: Train and Validation partition Loss. Default working point F1-score vs W vector F1-score</em></p>
 
 As we can see, the optimal point for both train and validation partitions achieves an F1-score that coincides with the manual working point sweeping in Figures 1 and 2:
