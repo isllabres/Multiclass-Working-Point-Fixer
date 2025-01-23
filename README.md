@@ -8,14 +8,13 @@ This repository contains the `multiclass_Working_Point_Fixer` class, which is de
 - [Usage](#usage)
 - [Methods](#methods)
 - [Examples](#examples)
-- [Contributing](#contributing)
-- [License](#license)
+- [References](#references)
 
 ## Methodology
 
 ### Introduction
 
-In binary classification problems, using standard metrics like accuracy can be misleading because they do not account for class imbalance effectively. Other metrics such as Precision, Recall or its harmonic mean, the F1-score, can focus on the performance across classes.
+In binary classification problems, using standard metrics like accuracy can be missleading because they do not account for class imbalance effectively. Other metrics such as Precision, Recall or its harmonic mean, the F1-score, can focus on the performance across classes.
 
 When processing the probability outputs, using the default working point (0.5) to decide whether the sample belongs to class 0 or class 1 might not always be the best decision. This can be easily handled by sweeping the working point and choosing the one that satisfies the problem necessities, commonly, seeking to maximize the F1-score.
 
@@ -71,7 +70,8 @@ The process for training the W vector is similar to any NN and is the following:
 
 Since this is a vectorial way of searching for the optimal working point, it must work also in binary problems. Let's check the following graph, obtained from the same example in Figure 1 and 2 in the introduction:
 
-<img src='data/images/train_val_binary_verification.png' alt='Train and Val losses, and F1-score comparison'>
+<img src='data/images/train_val_binary_verification.png' alt='Train and Val losses'>
+<img src='data/images/train_val_binary_verification_f1.png' alt='F1-score comparison'>
 <p align="center"><em>Figure 4: Train and Validation partition Loss. Default working point F1-score vs W vector F1-score</em></p>
 
 As we can see, the optimal point for both train and validation partitions achieves an F1-score that coincides with the manual working point sweeping in Figures 1 and 2:
@@ -156,6 +156,18 @@ fixer.fit(
 - `x_tst`: numpy array with the test input data.
 - `y_tst`: numpy array with the test expected output.
 - `plot`: boolean indicating whether to plot or not train-val losses and F1 vs F1w scores.
+
+### `predict`
+
+This method predicts the class labels for the given input data using the adjusted multiclass working point vector.
+
+```python
+predictions = fixer.predict(x)
+```
+
+- `x`: numpy array with the input data for which predictions are to be made.
+
+The method returns a numpy array with the predicted class labels for each input sample.
 
 ### `plot_class_f1_scores`
 
