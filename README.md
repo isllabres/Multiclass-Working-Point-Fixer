@@ -157,6 +157,18 @@ fixer.fit(
 - `y_tst`: numpy array with the test expected output.
 - `plot`: boolean indicating whether to plot or not train-val losses and F1 vs F1w scores.
 
+### `predict`
+
+This method predicts the class labels for the given input data using the adjusted multiclass working point vector.
+
+```python
+predictions = fixer.predict(x)
+```
+
+- `x`: numpy array with the input data for which predictions are to be made.
+
+The method returns a numpy array with the predicted class labels for each input sample.
+
 ### `plot_class_f1_scores`
 
 This method shows the obtained weighted F1-score for the model after fixing the multiclass working point vector.
