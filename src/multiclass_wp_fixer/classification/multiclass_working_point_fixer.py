@@ -509,7 +509,11 @@ class multiclass_Working_Point_Fixer(torch.nn.Module):
         fig.show()
 
     def plot_weights(self, c_names: List = None, normalized: str = False) -> None:
-        """Plot model weights.
+        """Plot model weights. If normalized, the weights are normalized to sum up to the number of classes.
+        With the normalization, the weights can be interpreted as follows:
+            1. If the weight is 1, the class significance is the same as at the beginning.
+            2. If the weight is greater than 1, the class significance is increased.
+            3. If the weight is lower than 1, the class significance is decreased.
 
         Args:
             c_names: list of class names
