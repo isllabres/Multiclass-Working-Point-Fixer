@@ -114,7 +114,7 @@ Below you will find a detailed description of how to use this class.
 ### Importing the Class
 
 ```python
-from src.multiclass_wp_fixer.classification.multiclass_working_point_fixer import multiclass_Working_Point_Fixer
+from multiclass_wp_fixer.classification.multiclass_working_point_fixer import multiclass_Working_Point_Fixer
 ```
 
 ### Initializing the Class
