@@ -1,5 +1,7 @@
 import pandas
 from loguru import logger
+import numpy as np
+from sklearn.model_selection import train_test_split
 
 
 def load_example_data(data_mode: str, data_path: str):
@@ -36,3 +38,33 @@ def load_example_data(data_mode: str, data_path: str):
         y_test_pred = None
 
     return y_train_true, y_train_pred, y_test_true, y_test_pred
+
+
+def generate_random_multiclass_data(num_samples: int, num_classes: int, val_size: float):
+    """Generate random multiclass model predictions probabilities and true labels
+
+    Args:
+        num_samples (int): The number of samples to generate
+        num_classes (int): The number of classes
+        val_size (float): The proportion of the dataset to include in the validation split
+
+    Returns:
+        tuple: A tuple containing the training true labels, training predicted probabilities, 
+        validation true labels, and validation predicted probabilities
+    """
+    # Generate random true labels
+    y_true = np.random.randint(0, num_classes, size=num_samples)
+
+    # One-hot encode the true labels
+    y_true_one_hot = np.eye(num_classes)[y_true]
+
+    # Generate random predicted probabilities
+    y_pred_proba = np.random.rand(num_samples, num_classes)
+    y_pred_proba = y_pred_proba / y_pred_proba.sum(axis=1, keepdims=True)  # Normalize to get probabilities
+
+    # Split the data into training and validation sets
+    y_train_true, y_val_true, y_train_pred_proba, y_val_pred_proba = train_test_split(
+        y_true_one_hot, y_pred_proba, test_size=val_size, random_state=42
+    )
+
+    return y_train_true, y_train_pred_proba, y_val_true, y_val_pred_proba
