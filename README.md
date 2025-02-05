@@ -97,7 +97,13 @@ As we can see, the optimal point for both train and validation partitions achiev
 
 ## Installation
 
-To use the `multiclass_Working_Point_Fixer` class, you need to clone this repository and install the required dependencies.
+To use the `multiclass_Working_Point_Fixer` class, you need to install the `multiclass_wp_fixer` library. You can install it directly from PyPI using pip:
+
+```bash
+pip install multiclass_wp_fixer
+```
+
+Alternatively, you can clone the repository and install the required dependencies manually:
 
 ```bash
 git clone https://github.com/isllabres/Multiclass-Working-Point-Fixer.git
