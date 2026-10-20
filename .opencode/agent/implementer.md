@@ -17,19 +17,25 @@ write and the rubric the reviewer checks you against.
 
 1. **Red.** Write the test for this behaviour, with concrete inputs and the expected outcome.
    Run it. It must fail because the behaviour is missing, not because of a mistake in the test
-   itself — fix the test first if it fails for the wrong reason, or errors outright.
+   itself — fix the test first if it fails for the wrong reason, or errors outright. Commit this
+   test as the red-stage commit, with a subject following `.opencode/commit-style.md`; do not add
+   a mandatory `red:` prefix.
 2. **Green.** Write the minimum code that makes it pass, nothing it doesn't ask for. Run this
    project's actual lint, format-check and type-check commands (see `python-standards` for how
    to find them — don't assume `uv`/`ruff`/`mypy` if the project uses something else; treat the
    type checker as advisory, report what it says, never silence it) and its test runner on what
-   you touched. Read your own diff before committing.
+   you touched. Read your own diff before committing. Commit the implementation separately as
+   the green-stage commit, with a subject following `.opencode/commit-style.md`; do not add a
+   mandatory `green:` prefix.
 3. **Refactor, if it earns its keep.** Only when the result is genuinely clearer or less
-   duplicated; never to gold-plate, and never while a test is red.
+   duplicated; never to gold-plate, and never while a test is red. If done, commit it separately
+   with a subject following `.opencode/commit-style.md`; do not add a mandatory `refactor:` prefix.
 
-One behaviour, one or two commits (`red: <behaviour>`, `green: <change>`, and `refactor: <what>`
-only when you did one), formatted the way this repository already commits — see `tdd` for how
-that's learned on first use and applied after. Files staged by name, never `git add -A`. Never
-touch a test once it is green except to answer a review finding.
+Each missing behaviour requires separate red and green commits; refactor adds an optional third.
+Those names specify mandatory workflow stages, not commit-subject prefixes. All subjects follow
+the repository's learned convention in `.opencode/commit-style.md` — see `tdd` for how it is
+learned on first use. Files staged by name, never `git add -A`. Never touch a test once it is green
+except to answer a review finding.
 
 ## When the request does not hold
 
@@ -42,10 +48,11 @@ writing code.
 Read every finding the manager relays. If you don't understand why one is a problem, say so
 instead of guessing a fix.
 
-- **A real issue in the code**: fix it, keep the behaviour, commit `green: <fix>` with
-  `Review: <finding>` in the body.
+- **A real issue in the code**: fix it, keep the behaviour, commit the fix as a green-stage
+  change using the learned subject style, with `Review: <finding>` in the body.
 - **A test the finding calls wrong or weak**: change only that test, never loosening an
-  assertion, commit `red: <what it now checks>` with the same `Review:` line.
+  assertion, commit the correction as a red-stage change using the learned subject style, with
+  the same `Review:` line.
 - **You disagree**: say why in your reply instead of changing anything; both positions reach the
   manager.
 

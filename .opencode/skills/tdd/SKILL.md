@@ -12,11 +12,14 @@ conversation, and the implementer builds it one behaviour at a time.
 
 1. **Red** — write the test for one behaviour, with concrete inputs and the outcome you expect.
    Run it and watch it fail for the right reason (the behaviour is missing, not a typo in the
-   test). Commit: `red: <the behaviour it expects>`.
+   test). Commit the failing test as the red-stage commit. Its subject must follow
+   `.opencode/commit-style.md`; `red` names the workflow stage, not a required subject prefix.
 2. **Green** — write the minimum code that makes it pass. Nothing the test doesn't ask for.
-   Commit: `green: <the change>`.
+   Commit the implementation separately as the green-stage commit. Its subject must follow
+   `.opencode/commit-style.md`; `green` names the workflow stage, not a required subject prefix.
 3. **Refactor** — only when it genuinely improves the result, never while a test is red and
-   never to add something no test asked for. Commit: `refactor: <what changed and why>`.
+   never to add something no test asked for. If done, commit it separately as the refactor-stage
+   commit, with a subject following `.opencode/commit-style.md`.
 
 A behaviour that already exists is caught here, not guessed beforehand: if the test you just
 wrote passes before any code, say so instead of committing it as red.
@@ -44,15 +47,17 @@ does. Before your first commit in a repository, check for `.opencode/commit-styl
 
   This first commit is the one exception to "red before green": it's tooling, not a behaviour.
 
-Every commit after follows `.opencode/commit-style.md`, never a fresh guess. What never changes,
+Red and green are separate, mandatory commits for each missing behaviour; refactor is an optional
+third commit. Workflow-stage names describe commit contents and order, not subject prefixes.
+Every commit follows `.opencode/commit-style.md`, never a fresh guess. What never changes,
 regardless of style:
 
 ## Commits
 
 One logical step per commit, subject under 72 characters, imperative, naming the behaviour
 ("retry 5xx responses in `HttpClient.get`") not the mechanism ("fix bug"), formatted per
-`.opencode/commit-style.md`. Files staged by name — never `git add -A`. A `green` commit never
-touches a test; a test changed after its green cites the review finding that asked for it
+`.opencode/commit-style.md`. Files staged by name — never `git add -A`. A green-stage commit never
+touches a test; a test changed after its green commit cites the review finding that asked for it
 (`Review: <finding>` in the body).
 
 ## What a test must do
