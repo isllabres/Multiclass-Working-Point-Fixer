@@ -33,8 +33,8 @@ change goes in a finding instead.
 2. **Each test against its behaviour.** For every test the implementer added or changed, read
    its Arrange, Act and Assert: does it actually exercise the behaviour it claims to, with
    concrete values, no mock of the code under test, no `skip`/`xfail`/sleep, randomness seeded,
-   no exact value loosened to `is not None`? If a `red: ` commit's claim doesn't convince you,
-   check it out before the matching `green` and confirm it really failed.
+    no exact value loosened to `is not None`? If a red-stage commit's claim doesn't convince you,
+    check it out before its corresponding green-stage commit and confirm the test really failed.
 3. **Suite and tooling.** Run this project's actual test, lint, format-check and type-check
    commands — whatever `pyproject.toml`/`setup.cfg`/`tox.ini`/CI config already use (`uv run
    pytest`, plain `pytest`, `poetry run pytest`, …; `python-standards` has how to find them),
