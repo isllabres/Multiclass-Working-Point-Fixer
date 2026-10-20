@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "manager",
+  "permission": {
+    "bash": {
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "git show*": "allow",
+      "uv run pytest*": "allow",
+      "uv run ruff*": "allow",
+      "uv run mypy*": "allow",
+      "poetry run pytest*": "allow",
+      "poetry run ruff*": "allow",
+      "poetry run mypy*": "allow",
+      "python -m pytest*": "allow",
+      "python3 -m pytest*": "allow",
+      "pytest*": "allow",
+      "ruff*": "allow",
+      "mypy*": "allow",
+      "pyright*": "allow",
+      "flake8*": "allow",
+      "black --check*": "allow",
+      "*": "ask"
+    }
+  }
+}
