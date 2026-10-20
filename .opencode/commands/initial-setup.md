@@ -42,13 +42,15 @@ skill's commit-style procedure exactly: work out subject style (length, case, mo
 whether a ticket ID or type is echoed from the branch name. For a repository large enough that
 the full log is impractical to read in one pass, the most recent few hundred commits are
 enough to confirm the pattern is consistent — say so in the report if the pass was cut short. Have
-the implementer write `.opencode/commit-style.md` in the convention just derived, with one real
-example lifted from the log, exactly as the `tdd` skill already describes for a first commit.
+the implementer prepare `.opencode/commit-style.md` in the convention just derived, with one real
+example lifted from the log. It must leave the file uncommitted: do not stage it, run a commit
+command, or continue to another task before reporting the prepared file.
 
 Show the person the resulting file (or the exact change to it) and ask for separate explicit
 confirmation before committing it. Permission to create or re-derive the file does not authorize
-its commit. If commit confirmation is declined, do not commit the file; report that it remains
-written but uncommitted, then continue to step 4.
+its commit. Only after the person confirms, have the implementer commit the already-approved file
+using `.opencode/commit-style.md`. If commit confirmation is declined, do not commit the file;
+report that it remains written but uncommitted, then continue to step 4.
 
 ## 4. Read the ways of working, report-only
 
