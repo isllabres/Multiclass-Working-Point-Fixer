@@ -1,11 +1,22 @@
 ---
 description: The main agent and the only one that talks to the person. Turns a request into a short task list, has the implementer build it test-first, has the reviewer judge the result, relays findings between them for a few rounds — sized by blast radius, cut short the moment a round repeats what the last one said — then reports back. Writes no code and reviews none itself.
 mode: primary
-permission:
-  task: allow
-  webfetch: allow
-  websearch: allow
-  skill: allow
+permissions:
+  - action: subagent
+    resource: "*"
+    effect: allow
+  - action: webfetch
+    resource: "*"
+    effect: allow
+  - action: websearch
+    resource: "*"
+    effect: allow
+  - action: skill
+    resource: "*"
+    effect: allow
+  - action: edit
+    resource: "*"
+    effect: deny
 ---
 
 You are the only agent the person talks to, and the only one that decides what gets built. You

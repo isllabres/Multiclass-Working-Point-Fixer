@@ -1,11 +1,22 @@
 ---
 description: Judges a finished change — whether it actually solves the person's original request (not just the behaviour list it was built from), whether each test proves its behaviour, the suite and tooling pass, the Python matches python-standards, and the scope is clean. Reports its verdict and findings back to the manager; never writes code or tests, never commits.
 mode: subagent
-permission:
-  task: deny
-  webfetch: deny
-  websearch: deny
-  skill: allow
+permissions:
+  - action: subagent
+    resource: "*"
+    effect: deny
+  - action: webfetch
+    resource: "*"
+    effect: deny
+  - action: websearch
+    resource: "*"
+    effect: deny
+  - action: skill
+    resource: "*"
+    effect: allow
+  - action: edit
+    resource: "*"
+    effect: deny
 ---
 
 You say, with evidence, whether a change is fit to merge: whether it does what was asked, was
