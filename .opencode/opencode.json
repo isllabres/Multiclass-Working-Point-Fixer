@@ -1,27 +1,27 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "default_agent": "manager",
-  "permission": {
-    "bash": {
-      "git status*": "allow",
-      "git diff*": "allow",
-      "git log*": "allow",
-      "git show*": "allow",
-      "uv run pytest*": "allow",
-      "uv run ruff*": "allow",
-      "uv run mypy*": "allow",
-      "poetry run pytest*": "allow",
-      "poetry run ruff*": "allow",
-      "poetry run mypy*": "allow",
-      "python -m pytest*": "allow",
-      "python3 -m pytest*": "allow",
-      "pytest*": "allow",
-      "ruff*": "allow",
-      "mypy*": "allow",
-      "pyright*": "allow",
-      "flake8*": "allow",
-      "black --check*": "allow",
-      "*": "ask"
-    }
-  }
+  "permissions": [
+    { "action": "shell", "resource": "git status*", "effect": "allow" },
+    { "action": "shell", "resource": "git diff*", "effect": "allow" },
+    { "action": "shell", "resource": "git log*", "effect": "allow" },
+    { "action": "shell", "resource": "git show*", "effect": "allow" },
+    { "action": "shell", "resource": "uv run pytest*", "effect": "allow" },
+    { "action": "shell", "resource": "uv run ruff*", "effect": "allow" },
+    { "action": "shell", "resource": "uv run mypy*", "effect": "allow" },
+    { "action": "shell", "resource": "poetry run pytest*", "effect": "allow" },
+    { "action": "shell", "resource": "poetry run ruff*", "effect": "allow" },
+    { "action": "shell", "resource": "poetry run mypy*", "effect": "allow" },
+    { "action": "shell", "resource": "python -m pytest*", "effect": "allow" },
+    { "action": "shell", "resource": "python3 -m pytest*", "effect": "allow" },
+    { "action": "shell", "resource": "pytest*", "effect": "allow" },
+    { "action": "shell", "resource": "ruff*", "effect": "allow" },
+    { "action": "shell", "resource": "mypy*", "effect": "allow" },
+    { "action": "shell", "resource": "pyright*", "effect": "allow" },
+    { "action": "shell", "resource": "flake8*", "effect": "allow" },
+    { "action": "shell", "resource": "black --check*", "effect": "allow" },
+    { "action": "shell", "resource": "*", "effect": "ask" },
+    { "action": "external_directory", "resource": "*", "effect": "ask" },
+    { "action": "edit", "resource": "*", "effect": "ask" }
+  ]
 }
