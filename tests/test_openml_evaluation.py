@@ -307,3 +307,20 @@ def test_pickle_adapter_infers_only_inside_opt_in_docker() -> None:
     assert probabilities.shape == (4, 2)
     assert np.allclose(probabilities.sum(axis=1), 1)
     assert probabilities[0, 0] > probabilities[-1, 0]
+
+
+def test_run_choice_skips_better_scoring_run_without_fitted_model() -> None:
+    import pandas as pd
+
+    from scripts.evaluate_openml import choose_run
+
+    artifact = pd.DataFrame({"row_id": [3, 2], "correct": ["b", "a"], "prediction": ["b", "a"],
+        "confidence.a": [0.2, 0.8], "confidence.b": [0.8, 0.2]})
+    runs = [
+        SimpleNamespace(id=10, flow_name="weka.J48(28)", evaluations={"f1_binary": 0.99}, output_files={}, predictions=artifact),
+        SimpleNamespace(id=11, flow_name="weka.J48(28)", evaluations={"f1_binary": 0.88}, output_files={"model_serialized": 123}, predictions=artifact),
+    ]
+    chosen, aligned, rejected = choose_run(runs, "binary", ("a", "b"), (2, 3), {2: "a", 3: "b"})
+    assert chosen.id == 11
+    assert aligned["row_id"].tolist() == [2, 3]
+    assert rejected == ["run 10: no downloadable fitted model"]
