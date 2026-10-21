@@ -162,6 +162,41 @@ def rank_runs(
     return sorted(ranked, key=lambda item: (-item[1], item[0].id))
 
 
+def validate_artifact(
+    artifact: pd.DataFrame,
+    test_ids: tuple[int, ...],
+    labels: tuple[str, ...],
+    dataset_truth: dict[int, str],
+) -> pd.DataFrame:
+    """Verify archived test records and order them by OpenML test row ID.
+
+    Raises:
+        ValueError: If rows, labels, truth, or probability columns are inconsistent.
+    """
+    required = {"row_id", "correct", "prediction"} | {
+        f"confidence.{label}" for label in labels
+    }
+    if not required.issubset(artifact.columns) or {
+        column for column in artifact if column.startswith("confidence.")
+    } != {f"confidence.{label}" for label in labels}:
+        raise ValueError("artifact has missing or incompatible columns")
+    if artifact["row_id"].isna().any() or artifact["row_id"].duplicated().any():
+        raise ValueError("artifact row_id is missing or duplicated")
+    if set(artifact["row_id"].astype(int)) != set(test_ids):
+        raise ValueError("artifact row_id differs from test split")
+    aligned = artifact.set_index("row_id").loc[list(test_ids)].reset_index()
+    if any(str(row.correct) != str(dataset_truth[row.row_id]) for row in aligned.itertuples()):
+        raise ValueError("archived truth does not match dataset row_id")
+    if not set(aligned["prediction"].astype(str)).issubset(labels):
+        raise ValueError("artifact prediction outside class labels")
+    probabilities = aligned[[f"confidence.{label}" for label in labels]].to_numpy(dtype=float)
+    if not np.isfinite(probabilities).all() or (probabilities < 0).any() or (
+        probabilities > 1
+    ).any() or not np.allclose(probabilities.sum(axis=1), 1, atol=1e-5):
+        raise ValueError("artifact probability is not a valid class distribution")
+    return aligned
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse evaluation options; reject invalid types and negative sample sizes."""
     config = json.loads(_CONFIG.read_text(encoding="utf-8"))
