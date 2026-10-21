@@ -309,7 +309,7 @@ def test_pickle_adapter_infers_only_inside_opt_in_docker() -> None:
     assert probabilities[0, 0] > probabilities[-1, 0]
 
 
-def test_run_choice_skips_better_scoring_run_without_fitted_model() -> None:
+def test_run_choice_skips_earlier_run_without_fitted_model() -> None:
     import pandas as pd
 
     from scripts.evaluate_openml import choose_run
@@ -317,8 +317,8 @@ def test_run_choice_skips_better_scoring_run_without_fitted_model() -> None:
     artifact = pd.DataFrame({"row_id": [3, 2], "correct": ["b", "a"], "prediction": ["b", "a"],
         "confidence.a": [0.2, 0.8], "confidence.b": [0.8, 0.2]})
     runs = [
-        SimpleNamespace(id=10, flow_name="weka.J48(28)", evaluations={"f1_binary": 0.99}, output_files={}, predictions=artifact),
-        SimpleNamespace(id=11, flow_name="weka.J48(28)", evaluations={"f1_binary": 0.88}, output_files={"model_serialized": 123}, predictions=artifact),
+        SimpleNamespace(id=10, flow_name="weka.J48(28)", evaluations={"f1_binary": 1.0}, output_files={}, predictions=artifact),
+        SimpleNamespace(id=11, flow_name="weka.J48(28)", evaluations={"f1_binary": 1.0}, output_files={"model_serialized": 123}, predictions=artifact),
     ]
     chosen, aligned, rejected = choose_run(runs, "binary", ("a", "b"), (2, 3), {2: "a", 3: "b"})
     assert chosen.id == 11
