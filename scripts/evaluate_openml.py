@@ -13,6 +13,10 @@ import pandas as pd
 import requests
 from openml.tasks import TaskType
 from sklearn.metrics import f1_score
+from multiclass_wp_fixer.classification.metrics_working_point import (
+    metrics_scanning_working_points_plotly,
+    predict_with_working_point,
+)
 
 
 _CONFIG = Path(__file__).with_name("openml_config.json")
@@ -260,6 +264,38 @@ def orient_binary(
     if not matches:
         raise ValueError("published F1 mismatch for both label orientations")
     return matches[0]
+
+
+def compare_predictions(
+    kind: str,
+    train_probs: np.ndarray,
+    train_onehot: np.ndarray,
+    test_probs: np.ndarray,
+    test_onehot: np.ndarray,
+    archived_predictions: np.ndarray,
+) -> dict[str, object]:
+    """Tune a binary working point on train only and score archived test rows."""
+    if kind != "binary":
+        raise ValueError("only binary scanner is implemented")
+    config = json.loads(_CONFIG.read_text(encoding="utf-8"))
+    scanned = metrics_scanning_working_points_plotly(
+        pred_proba=train_probs[:, 1],
+        y_true=train_onehot[:, 1],
+        first_working_point=0.0,
+        last_working_point=1.0,
+        n_working_points=config["scanner_points"],
+        plot=False,
+    )
+    threshold = float(scanned["working_point_best_f1"])
+    truth = test_onehot.argmax(axis=1)
+    improved = predict_with_working_point(test_probs[:, 1], threshold).ravel()
+    return {
+        "method": "scanner",
+        "baseline": float(f1_score(truth, archived_predictions, zero_division=0)),
+        "improved": float(f1_score(truth, improved, zero_division=0)),
+        "threshold": threshold,
+        "predictions": improved,
+    }
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
