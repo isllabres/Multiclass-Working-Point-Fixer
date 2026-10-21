@@ -18,6 +18,12 @@ def test_entrypoint_exposes_modes_and_paths() -> None:
         assert flag in result.stdout
 
 
+def test_openml_client_fails_fast_instead_of_hanging_on_a_dead_host() -> None:
+    from scripts import evaluate_openml
+
+    assert evaluate_openml.openml.config.connection_n_retries <= 2
+
+
 def test_catalog_requires_exact_holdout_type_and_records_filter() -> None:
     from scripts.evaluate_openml import filter_catalog
 

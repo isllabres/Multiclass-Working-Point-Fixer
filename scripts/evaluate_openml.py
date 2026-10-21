@@ -41,6 +41,11 @@ from multiclass_wp_fixer.classification.multiclass_working_point_fixer import (
 _CONFIG = Path(__file__).with_name("openml_config.json")
 _LOG = logging.getLogger(__name__)
 
+# The openml-python client issues each HTTP call with no socket timeout, so its
+# own default of 5 internal retries can turn a fully unreachable server into a
+# multi-minute hang before our own retry/blocker logic in query_catalog ever runs.
+openml.config.connection_n_retries = 2
+
 
 @dataclass(frozen=True, slots=True)
 class Sandbox:
