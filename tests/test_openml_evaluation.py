@@ -145,3 +145,16 @@ def test_docker_restrictions_disallow_host_access_and_privilege() -> None:
     assert flags["nano_cpus"] > 0
     assert flags["volumes"]["/safe/input"]["mode"] == "ro"
     assert not any("docker.sock" in key for key in flags["volumes"])
+
+
+def test_binary_orientation_matches_published_f1_or_rejects_mismatch() -> None:
+    import pytest
+
+    from scripts.evaluate_openml import orient_binary
+
+    truth = ["a", "a", "b", "b"]
+    predictions = ["a", "a", "a", "b"]
+    assert orient_binary(truth, predictions, ("a", "b"), 2 / 3) == ("b", "a")
+    assert orient_binary(truth, predictions, ("a", "b"), None) == ("b", "a")
+    with pytest.raises(ValueError, match="published F1 mismatch"):
+        orient_binary(truth, predictions, ("a", "b"), 0.01)
