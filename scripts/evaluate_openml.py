@@ -5,6 +5,7 @@ import io
 import html
 import json
 import logging
+import time
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ import requests
 import torch
 import docker
 from docker.errors import DockerException, ImageNotFound
+from openml.exceptions import OpenMLServerError
 from openml.tasks import TaskType
 from sklearn.metrics import f1_score
 from multiclass_wp_fixer.classification.metrics_working_point import (
@@ -87,11 +89,24 @@ def read_procedure(xml: str) -> tuple[int, str]:
     raise ValueError("task metadata has no estimation procedure ID/type")
 
 
-def query_catalog() -> tuple[list[int], dict[str, str]]:
-    """Fetch current classification tasks and verify each holdout's API procedure type."""
-    listing = openml.tasks.list_tasks(
-        task_type=TaskType.SUPERVISED_CLASSIFICATION, output_format="dataframe"
-    )
+def query_catalog(attempts: int = 3) -> tuple[list[int], dict[str, str]]:
+    """Fetch current classification tasks and verify each holdout's API procedure type.
+
+    Transient server errors (e.g. 503) are retried with a delay so one failing
+    OpenML request cannot shrink the candidate pool.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            listing = openml.tasks.list_tasks(
+                task_type=TaskType.SUPERVISED_CLASSIFICATION, output_format="dataframe"
+            )
+            break
+        except OpenMLServerError as error:
+            if attempt == attempts or "503" not in str(error):
+                raise
+            time.sleep(min(2 ** attempt, 30))
+    else:
+        raise RuntimeError("unreachable")
     candidates = listing.loc[
         listing["estimation_procedure"].isin(("10% Holdout set", "33% Holdout set"))
     ]
