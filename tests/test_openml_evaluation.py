@@ -213,3 +213,18 @@ def test_breakdown_preserves_per_class_old_and_new_f1() -> None:
 
     breakdown = class_breakdown([0, 1, 2, 2], [0, 0, 1, 2], [0, 1, 1, 2], ("a", "b", "c"))
     assert breakdown == {"a": {"previous": 2 / 3, "new": 1.0}, "b": {"previous": 0.0, "new": 2 / 3}, "c": {"previous": 2 / 3, "new": 2 / 3}}
+
+
+def test_html_report_is_standalone_when_every_task_is_excluded() -> None:
+    from scripts.evaluate_openml import render_report
+
+    html = render_report(
+        [{"task_id": 7, "status": "excluded", "reason": "no fitted artifact"}],
+        {"retrieved_at": "2026-10-21T00:00:00+00:00", "filters": "procedure.type == holdout"},
+        {"n": 1, "seed": 41, "classification_type": "both"},
+    )
+    assert "plotly.js" in html.lower()
+    assert "no fitted artifact" in html
+    assert "Evaluated: 0" in html
+    assert "selection bias" in html.lower()
+    assert "Search tasks" in html
