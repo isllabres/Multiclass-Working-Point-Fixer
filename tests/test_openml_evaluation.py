@@ -158,3 +158,19 @@ def test_binary_orientation_matches_published_f1_or_rejects_mismatch() -> None:
     assert orient_binary(truth, predictions, ("a", "b"), None) == ("b", "a")
     with pytest.raises(ValueError, match="published F1 mismatch"):
         orient_binary(truth, predictions, ("a", "b"), 0.01)
+
+
+def test_binary_scanner_selects_on_train_and_applies_to_test() -> None:
+    import numpy as np
+
+    from scripts.evaluate_openml import compare_predictions
+
+    train = np.array([[0.9, 0.1], [0.6, 0.4], [0.4, 0.6], [0.1, 0.9]])
+    train_y = np.eye(2)[[0, 1, 1, 0]]
+    test = np.array([[0.65, 0.35], [0.35, 0.65]])
+    test_y = np.eye(2)[[1, 0]]
+    result = compare_predictions("binary", train, train_y, test, test_y, np.array([0, 1]))
+    assert result["method"] == "scanner"
+    assert result["baseline"] == 0.0
+    assert result["improved"] == 2 / 3
+    assert 0.1 < result["threshold"] <= 0.35
