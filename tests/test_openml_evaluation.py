@@ -362,3 +362,25 @@ def test_sample_evaluates_archived_run_with_train_only_docker_inference(monkeypa
     assert row["run_id"] == 99
     assert row["baseline"] == 1.0
     assert "Run 99" in report.read_text()
+
+
+def test_catalog_retries_transient_openml_503_without_changing_candidate_pool(monkeypatch) -> None:
+    import pandas as pd
+    from openml.exceptions import OpenMLServerError
+    import scripts.evaluate_openml as evaluation
+
+    calls = []
+    def list_tasks(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise OpenMLServerError("Status code: 503")
+        return pd.DataFrame({"estimation_procedure": ["33% Holdout set"]}, index=[7])
+
+    xml = '<oml:task xmlns:oml="http://openml.org/openml"><oml:input name="estimation_procedure"><oml:estimation_procedure><oml:id>6</oml:id><oml:type>holdout</oml:type></oml:estimation_procedure></oml:input></oml:task>'
+    monkeypatch.setattr(evaluation.openml.tasks, "list_tasks", list_tasks)
+    monkeypatch.setattr(evaluation.requests, "get", lambda *args, **kwargs: SimpleNamespace(text=xml, raise_for_status=lambda: None))
+    monkeypatch.setattr(evaluation.time, "sleep", lambda _: None)
+    ids, filters = evaluation.query_catalog()
+    assert ids == [7]
+    assert len(calls) == 2
+    assert "procedure.id in (5,6)" in filters["filters"]
