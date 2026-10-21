@@ -78,3 +78,20 @@ def test_read_procedure_id_from_openml_xml_not_sdk_default() -> None:
 
     xml = '<oml:task xmlns:oml="http://openml.org/openml"><oml:input name="estimation_procedure"><oml:estimation_procedure><oml:id>6</oml:id><oml:type>holdout</oml:type></oml:estimation_procedure></oml:input></oml:task>'
     assert read_procedure(xml) == (6, "holdout")
+
+
+def test_rank_runs_uses_only_comparable_published_f1() -> None:
+    import pandas as pd
+
+    from scripts.evaluate_openml import rank_runs
+
+    archived = pd.DataFrame({"correct": ["a", "a", "b", "b"], "prediction": ["a", "b", "b", "b"]})
+    runs = [
+        SimpleNamespace(id=1, evaluations={"f_measure": 1.0}, predictions=archived),
+        SimpleNamespace(id=2, evaluations={"f1_binary": 0.7}, predictions=archived),
+    ]
+    ranked = rank_runs(runs, "binary", ("a", "b"))
+    assert [(run.id, score, source) for run, score, source in ranked] == [
+        (1, 0.8, "archived test F1"),
+        (2, 0.7, "published f1_binary"),
+    ]
