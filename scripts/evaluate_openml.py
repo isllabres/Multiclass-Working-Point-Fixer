@@ -274,7 +274,7 @@ def select_adapter(filename: str, flow_name: str) -> str:
     """
     if filename.endswith((".pkl", ".pickle")) and flow_name.startswith("sklearn."):
         return "python-pickle"
-    if filename.endswith((".serialized", ".model")) and flow_name.startswith("weka."):
+    if filename.endswith((".serialized", ".model")) and flow_name.startswith("weka.J48"):
         return "weka"
     raise ValueError(f"unsupported model format/runtime: {filename} / {flow_name}")
 
@@ -626,17 +626,81 @@ def main(argv: list[str] | None = None) -> int:
                 row["dataset_id"] = task.dataset_id
                 dataset = task.get_dataset()
                 row["dataset_name"] = dataset.name
-                _, target, _, _ = dataset.get_data(target=task.target_name, dataset_format="dataframe")
+                features, target, _, _ = dataset.get_data(target=task.target_name, dataset_format="dataframe")
                 kind, labels = classify_target(target)
                 row["kind"] = kind
                 row["labels"] = labels
                 if args.classification_type != "both" and kind != args.classification_type:
                     raise ValueError("task type differs from requested classification type")
-                discover_split(task)
+                train_ids, test_ids = discover_split(task)
                 candidates = openml.runs.list_runs(task=[task_id], output_format="dict")
                 if not candidates:
                     raise ValueError("no candidate runs")
-                raise RuntimeError("model artifact inference not yet available")
+                runs = [openml.runs.get_run(int(run_id)) for run_id in candidates]
+                truth_by_id = {row_id: str(target.iloc[row_id]) for row_id in test_ids}
+                run, aligned, rejected = choose_run(runs, kind, labels, test_ids, truth_by_id)
+                ordered = labels
+                if kind == "binary":
+                    positive, negative = orient_binary(
+                        aligned["correct"].astype(str).tolist(),
+                        aligned["prediction"].astype(str).tolist(),
+                        labels,
+                        run.evaluations.get("f1_binary"),
+                    )
+                    ordered = (negative, positive)
+                row["labels"] = ordered
+                row["rejected_runs"] = rejected
+                model_id = run.output_files["model_serialized"]
+                model_response = requests.get(
+                    f"https://www.openml.org/data/download/{model_id}", timeout=60
+                )
+                model_response.raise_for_status()
+                adapter = select_adapter(
+                    "model.model" if run.flow_name.startswith("weka.") else "model.pkl",
+                    run.flow_name,
+                )
+                category_order = tuple(map(str, target.cat.categories)) if isinstance(
+                    target.dtype, pd.CategoricalDtype
+                ) else ordered
+                train_probs = infer_train(
+                    container,
+                    model_response.content,
+                    adapter,
+                    features.iloc[list(train_ids)],
+                    ordered,
+                    task.target_name,
+                    category_order,
+                )
+                test_probs = aligned[[f"confidence.{label}" for label in ordered]].to_numpy(dtype=float)
+                train_y = pd.Categorical(target.iloc[list(train_ids)].astype(str), categories=ordered).codes
+                test_y = pd.Categorical(aligned["correct"].astype(str), categories=ordered).codes
+                archived_y = pd.Categorical(aligned["prediction"].astype(str), categories=ordered).codes
+                if (train_y < 0).any() or (test_y < 0).any() or (archived_y < 0).any():
+                    raise ValueError("target labels not aligned to the model class order")
+                comparison = compare_predictions(
+                    kind,
+                    train_probs,
+                    np.eye(len(ordered), dtype=np.float32)[train_y],
+                    test_probs,
+                    np.eye(len(ordered), dtype=np.float32)[test_y],
+                    archived_y,
+                )
+                original = archived_y if kind == "binary" else test_probs.argmax(axis=1)
+                row.update(
+                    status="evaluated",
+                    run_id=run.id,
+                    adapter=adapter,
+                    f1_source="published " + ("f1_binary" if kind == "binary" else "f1_macro")
+                    if ("f1_binary" if kind == "binary" else "f1_macro") in run.evaluations
+                    else "archived test F1 (biased selection)",
+                    baseline=comparison["baseline"],
+                    improved=comparison["improved"],
+                    gain=float(comparison["improved"]) - float(comparison["baseline"]),
+                    threshold=comparison["threshold"],
+                    per_class=class_breakdown(
+                        test_y.tolist(), original.tolist(), comparison["predictions"].tolist(), ordered
+                    ),
+                )
             except ValueError as error:
                 row.update(status="excluded", reason=str(error))
             except (requests.RequestException, RuntimeError, OSError) as error:
