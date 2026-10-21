@@ -3,9 +3,11 @@
 import argparse
 import html
 import json
+import logging
 from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from importlib.metadata import version
 from pathlib import Path
 from typing import Iterable
 from xml.etree import ElementTree
@@ -31,6 +33,7 @@ from multiclass_wp_fixer.classification.multiclass_working_point_fixer import (
 
 
 _CONFIG = Path(__file__).with_name("openml_config.json")
+_LOG = logging.getLogger(__name__)
 
 
 def filter_catalog(tasks: Iterable[object]) -> list[int]:
@@ -472,7 +475,54 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     """Run the evaluation specified on the command line."""
-    parse_args(argv)
+    args = parse_args(argv)
+    catalog, filters = query_catalog()
+    selected = sample_tasks(catalog, args.n, args.seed)
+    options = {
+        "classification_type": args.classification_type,
+        "n": args.n,
+        "seed": args.seed,
+        "catalog_candidates": len(catalog),
+        "selected_task_ids": selected,
+        "settings": json.loads(_CONFIG.read_text(encoding="utf-8")),
+        "versions": {package: version(package) for package in ("openml", "docker", "numpy", "scikit-learn", "torch", "plotly")},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    rows: list[dict[str, object]] = []
+    with require_docker() as container:
+        options["image_id"] = getattr(getattr(container, "image", None), "id", "unknown")
+        for index, task_id in enumerate(selected, start=1):
+            _LOG.info("Attempting task %s (%s/%s)", task_id, index, len(selected))
+            row: dict[str, object] = {"task_id": task_id}
+            try:
+                task = openml.tasks.get_task(task_id, download_splits=True)
+                row["dataset_id"] = task.dataset_id
+                dataset = task.get_dataset()
+                row["dataset_name"] = dataset.name
+                _, target, _, _ = dataset.get_data(target=task.target_name, dataset_format="dataframe")
+                kind, labels = classify_target(target)
+                row["kind"] = kind
+                row["labels"] = labels
+                if args.classification_type != "both" and kind != args.classification_type:
+                    raise ValueError("task type differs from requested classification type")
+                discover_split(task)
+                candidates = openml.runs.list_runs(task=[task_id], output_format="dict")
+                if not candidates:
+                    raise ValueError("no candidate runs")
+                raise RuntimeError("model artifact inference not yet available")
+            except ValueError as error:
+                row.update(status="excluded", reason=str(error))
+            except (requests.RequestException, RuntimeError, OSError) as error:
+                row.update(status="error", reason=str(error))
+            rows.append(row)
+            _LOG.info("Task %s: %s — %s", task_id, row["status"], row.get("reason", ""))
+            args.audit.parent.mkdir(parents=True, exist_ok=True)
+            args.audit.write_text(
+                json.dumps({"catalog": filters, "catalog_candidates": len(catalog), "options": options, "tasks": rows}, indent=2, default=str),
+                encoding="utf-8",
+            )
+    args.report.parent.mkdir(parents=True, exist_ok=True)
+    args.report.write_text(render_report(rows, filters, options), encoding="utf-8")
     return 0
 
 
