@@ -71,3 +71,10 @@ def test_discover_split_rejects_multiple_splits_and_aligns_by_row_id() -> None:
     task.get_split_dimensions = lambda: (1, 2, 1)
     with pytest.raises(ValueError, match="one train/test split"):
         discover_split(task)
+
+
+def test_read_procedure_id_from_openml_xml_not_sdk_default() -> None:
+    from scripts.evaluate_openml import read_procedure
+
+    xml = '<oml:task xmlns:oml="http://openml.org/openml"><oml:input name="estimation_procedure"><oml:estimation_procedure><oml:id>6</oml:id><oml:type>holdout</oml:type></oml:estimation_procedure></oml:input></oml:task>'
+    assert read_procedure(xml) == (6, "holdout")
