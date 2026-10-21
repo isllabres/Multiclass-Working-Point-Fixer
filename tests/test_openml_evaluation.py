@@ -241,3 +241,34 @@ def test_docker_integration_is_opt_in() -> None:
     with require_docker() as container:
         result = container.exec_run(["python", "--version"], user="10001:10001")
         assert result.exit_code == 0
+
+
+def test_sample_attempts_exact_n_tasks_and_audits_exclusions(monkeypatch, tmp_path) -> None:
+    import json
+    import pandas as pd
+    import scripts.evaluate_openml as evaluation
+
+    listing = pd.DataFrame({"estimation_procedure": ["33% Holdout set"] * 3}, index=[7, 8, 9])
+    xml = '<oml:task xmlns:oml="http://openml.org/openml"><oml:input name="estimation_procedure"><oml:estimation_procedure><oml:id>6</oml:id><oml:type>holdout</oml:type></oml:estimation_procedure></oml:input></oml:task>'
+    monkeypatch.setattr(evaluation.openml.tasks, "list_tasks", lambda **kwargs: listing)
+    monkeypatch.setattr(evaluation.requests, "get", lambda *args, **kwargs: SimpleNamespace(text=xml, raise_for_status=lambda: None))
+    monkeypatch.setattr(evaluation.openml.tasks, "get_task", lambda tid, **kwargs: SimpleNamespace(
+        task_id=tid, dataset_id=12, target_name="class", get_split_dimensions=lambda: (1, 1, 1),
+        get_train_test_split_indices=lambda: ([0, 1, 2], [3, 4, 5]),
+        get_dataset=lambda: SimpleNamespace(name="toy", get_data=lambda **kwargs: (
+            pd.DataFrame({"feature": range(6)}), pd.Series(["a", "b", "a", "b", "a", "b"]), [False], ["feature"])),
+    ))
+    monkeypatch.setattr(evaluation.openml.runs, "list_runs", lambda **kwargs: {})
+    container = SimpleNamespace(stop=lambda **kwargs: None, remove=lambda **kwargs: None)
+    client = SimpleNamespace(ping=lambda: True, images=SimpleNamespace(get=lambda image: SimpleNamespace(id="sha256:test")),
+        containers=SimpleNamespace(run=lambda **kwargs: container), close=lambda: None)
+    monkeypatch.setattr(evaluation.docker, "from_env", lambda: client)
+    report = tmp_path / "sample.html"
+    audit = tmp_path / "sample.json"
+    assert evaluation.main(["--n", "1", "--seed", "41", "--report", str(report), "--audit", str(audit)]) == 0
+    recorded = json.loads(audit.read_text())
+    assert recorded["catalog_candidates"] == 3
+    assert len(recorded["tasks"]) == 1
+    assert recorded["tasks"][0]["status"] == "excluded"
+    assert recorded["tasks"][0]["reason"] == "no candidate runs"
+    assert "Evaluated: 0" in report.read_text()
