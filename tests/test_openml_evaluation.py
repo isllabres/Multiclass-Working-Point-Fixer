@@ -324,3 +324,41 @@ def test_run_choice_skips_earlier_run_without_fitted_model() -> None:
     assert chosen.id == 11
     assert aligned["row_id"].tolist() == [2, 3]
     assert rejected == ["run 10: no downloadable fitted model"]
+
+
+def test_sample_evaluates_archived_run_with_train_only_docker_inference(monkeypatch, tmp_path) -> None:
+    import json
+    import os
+    import pickle
+    import pandas as pd
+    import pytest
+    from sklearn.linear_model import LogisticRegression
+
+    if os.environ.get("OPENML_DOCKER_INTEGRATION") != "1":
+        pytest.skip("set OPENML_DOCKER_INTEGRATION=1 to test fixture model inference")
+    import scripts.evaluate_openml as evaluation
+
+    feature = pd.DataFrame({"x": [-3., -2., 2., 3., -1., 1., 2.5, -2.5]})
+    target = pd.Series(["a", "a", "b", "b", "a", "b", "b", "a"])
+    model_bytes = pickle.dumps(LogisticRegression().fit(feature.iloc[:6], target.iloc[:6]))
+    xml = '<oml:task xmlns:oml="http://openml.org/openml"><oml:input name="estimation_procedure"><oml:estimation_procedure><oml:id>6</oml:id><oml:type>holdout</oml:type></oml:estimation_procedure></oml:input></oml:task>'
+    monkeypatch.setattr(evaluation.openml.tasks, "list_tasks", lambda **kwargs: pd.DataFrame({"estimation_procedure": ["33% Holdout set"]}, index=[7]))
+    monkeypatch.setattr(evaluation.requests, "get", lambda url, **kwargs: SimpleNamespace(text=xml, content=model_bytes, raise_for_status=lambda: None))
+    monkeypatch.setattr(evaluation.openml.tasks, "get_task", lambda tid, **kwargs: SimpleNamespace(
+        task_id=tid, dataset_id=12, target_name="label", get_split_dimensions=lambda: (1, 1, 1),
+        get_train_test_split_indices=lambda: ([0, 1, 2, 3, 4, 5], [6, 7]),
+        get_dataset=lambda: SimpleNamespace(name="toy", get_data=lambda **kwargs: (feature, target, [False], ["x"])),
+    ))
+    artifact = pd.DataFrame({"row_id": [7, 6], "correct": ["a", "b"], "prediction": ["a", "b"],
+        "confidence.a": [0.8, 0.2], "confidence.b": [0.2, 0.8]})
+    run = SimpleNamespace(id=99, flow_name="sklearn.linear_model.LogisticRegression", evaluations={"f1_binary": 1.0},
+        output_files={"model_serialized": 123}, predictions=artifact)
+    monkeypatch.setattr(evaluation.openml.runs, "list_runs", lambda **kwargs: {99: {"run_id": 99}})
+    monkeypatch.setattr(evaluation.openml.runs, "get_run", lambda run_id: run)
+    report, audit = tmp_path / "sample.html", tmp_path / "sample.json"
+    assert evaluation.main(["--n", "1", "--seed", "41", "--report", str(report), "--audit", str(audit)]) == 0
+    row = json.loads(audit.read_text())["tasks"][0]
+    assert row["status"] == "evaluated"
+    assert row["run_id"] == 99
+    assert row["baseline"] == 1.0
+    assert "Run 99" in report.read_text()
