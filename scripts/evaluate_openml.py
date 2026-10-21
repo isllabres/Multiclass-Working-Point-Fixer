@@ -1,7 +1,9 @@
 """Command-line entry point for reproducible OpenML evaluations."""
 
 import argparse
+import html
 import json
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -10,6 +12,8 @@ from xml.etree import ElementTree
 import openml
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
+import plotly.io as pio
 import requests
 import torch
 from openml.tasks import TaskType
@@ -361,6 +365,59 @@ def class_breakdown(
         label: {"previous": float(before), "new": float(after)}
         for label, before, after in zip(labels, old, new, strict=True)
     }
+
+
+def render_report(
+    rows: list[dict[str, object]], catalog: dict[str, str], options: dict[str, object]
+) -> str:
+    """Render a self-contained Plotly report, including an empty evaluation."""
+    evaluated = [row for row in rows if row.get("status") == "evaluated"]
+    reasons = Counter(str(row.get("reason")) for row in rows if row.get("status") == "excluded")
+    summary = aggregate(evaluated)
+    fig = go.Figure()
+    for kind in ("binary", "multiclass"):
+        subset = [row for row in evaluated if row["kind"] == kind]
+        fig.add_trace(go.Scatter(
+            x=[row["baseline"] for row in subset],
+            y=[row["improved"] for row in subset],
+            text=[str(row["run_id"]) for row in subset],
+            name=f"{kind}: scanner" if kind == "binary" else "multiclass: fixer",
+            mode="markers",
+        ))
+    fig.update_layout(title="Test F1 vs improved test F1", xaxis_title="Baseline F1", yaxis_title="Improved F1")
+    gains = go.Figure()
+    for kind in ("binary", "multiclass"):
+        subset = [row for row in evaluated if row["kind"] == kind]
+        gains.add_trace(go.Bar(
+            x=[str(row["task_id"]) for row in subset],
+            y=[float(row["improved"]) - float(row["baseline"]) for row in subset],
+            name=f"{kind}: scanner" if kind == "binary" else "multiclass: fixer",
+        ))
+    gains.update_layout(title="Signed per-task F1 change", xaxis_title="Task ID", yaxis_title="Improved − baseline")
+    table_columns = ["task_id", "dataset_id", "dataset_name", "kind", "run_id", "f1_source", "labels", "baseline", "improved", "threshold", "gain", "status", "reason"]
+    table = "".join(
+        "<tr>" + "".join(f"<td>{html.escape(str(row.get(column, '')))}</td>" for column in table_columns) + "</tr>"
+        for row in rows
+    )
+    details = json.dumps(
+        {str(row["run_id"]): row.get("per_class", {}) for row in evaluated},
+        ensure_ascii=True,
+    ).replace("<", "\\u003c")
+    select = "".join(
+        f'<option value="{html.escape(str(row["run_id"]), quote=True)}">Run {html.escape(str(row["run_id"]))} / Task {html.escape(str(row["task_id"]))}</option>'
+        for row in evaluated
+    )
+    metadata = html.escape(json.dumps({"catalog": catalog, "options": options, "summary": summary, "exclusions": reasons}, indent=2, default=str))
+    plots = pio.to_html(fig, include_plotlyjs=True, full_html=False) + pio.to_html(gains, include_plotlyjs=False, full_html=False)
+    return f"""<!doctype html><html lang="en"><meta charset="utf-8"><title>OpenML working-point evaluation</title>
+<h1>OpenML evaluation</h1><p>Catalog candidates: {options.get('catalog_candidates', '?')} | Sampled/attempted: {len(rows)} | Evaluated: {len(evaluated)} | Excluded: {sum(reasons.values())}</p>
+<p>Test-F1-based run selection introduces selection bias. The catalog is dynamic; metadata may be imperfect; only artifact-eligible tasks and supported runtimes are evaluated. Improvement is not guaranteed. Overall mean gain is a descriptive combination of binary F1 and multiclass macro-F1, not a universal metric. Serialized models execute third-party code in a restricted Docker container; residual risk remains.</p>
+<pre>{metadata}</pre>{plots}
+<label for="run">Per-class F1 by run_id</label><select id="run"><option value="">Select run</option>{select}</select><div id="per-class"></div>
+<label for="search">Search tasks</label><input id="search" type="search"><table id="tasks" border="1"><thead><tr>{''.join(f'<th role="button">{column}</th>' for column in table_columns)}</tr></thead><tbody>{table}</tbody></table>
+<script>const breakdown={details};const dropdown=document.getElementById('run');dropdown.onchange=()=>{{const data=breakdown[dropdown.value]||{{}};Plotly.newPlot('per-class', [{{type:'bar',name:'Previous F1',x:Object.keys(data),y:Object.values(data).map(v=>v.previous)}},{{type:'bar',name:'New F1',x:Object.keys(data),y:Object.values(data).map(v=>v.new)}}],{{barmode:'group',title:'Per-class F1: run '+dropdown.value}})}};
+document.getElementById('search').oninput=e=>{{for(const row of document.querySelectorAll('#tasks tbody tr'))row.hidden=!row.textContent.toLowerCase().includes(e.target.value.toLowerCase())}};
+document.querySelectorAll('#tasks th').forEach((th,i)=>th.onclick=()=>{{const body=document.querySelector('#tasks tbody');[...body.rows].sort((a,b)=>a.cells[i].textContent.localeCompare(b.cells[i].textContent,undefined,{{numeric:true}})).forEach(row=>body.appendChild(row))}});</script></html>"""
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
