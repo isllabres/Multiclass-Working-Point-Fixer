@@ -55,3 +55,19 @@ def test_classify_target_rejects_multilabel_and_missing_values() -> None:
         classify_target(pd.Series(["yes", None, "no"]))
     with pytest.raises(ValueError, match="multilabel"):
         classify_target(pd.DataFrame({"a": [0, 1], "b": [1, 0]}))
+
+
+def test_discover_split_rejects_multiple_splits_and_aligns_by_row_id() -> None:
+    import numpy as np
+    import pytest
+
+    from scripts.evaluate_openml import discover_split
+
+    task = SimpleNamespace(
+        get_split_dimensions=lambda: (1, 1, 1),
+        get_train_test_split_indices=lambda: (np.array([3, 0]), np.array([2, 1])),
+    )
+    assert discover_split(task) == ((0, 3), (1, 2))
+    task.get_split_dimensions = lambda: (1, 2, 1)
+    with pytest.raises(ValueError, match="one train/test split"):
+        discover_split(task)
