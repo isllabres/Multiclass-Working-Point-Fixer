@@ -384,3 +384,263 @@ def test_catalog_retries_transient_openml_503_without_changing_candidate_pool(mo
     assert ids == [7]
     assert len(calls) == 2
     assert "procedure.id in (5,6)" in filters["filters"]
+
+
+def _sandbox_client() -> SimpleNamespace:
+    """Build a fake Docker client like the sandbox test's inline one."""
+    container = SimpleNamespace(stop=lambda **kwargs: None, remove=lambda **kwargs: None)
+    return SimpleNamespace(
+        ping=lambda: True,
+        images=SimpleNamespace(get=lambda image: SimpleNamespace(id="sha256:test")),
+        containers=SimpleNamespace(run=lambda **kwargs: container),
+        close=lambda: None,
+    )
+
+
+def test_verify_procedure_retries_transient_request_failures(monkeypatch) -> None:
+    """A transient outage during per-task verification retries with backoff, not a lost task."""
+    import requests
+
+    import scripts.evaluate_openml as evaluation
+
+    xml = (
+        '<oml:task xmlns:oml="http://openml.org/openml">'
+        '<oml:input name="estimation_procedure"><oml:estimation_procedure>'
+        "<oml:id>6</oml:id><oml:type>holdout</oml:type>"
+        "</oml:estimation_procedure></oml:input></oml:task>"
+    )
+    responses = [
+        requests.ConnectionError("first outage"),
+        requests.ConnectionError("second outage"),
+        SimpleNamespace(text=xml, raise_for_status=lambda: None),
+    ]
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        response = responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    sleeps = []
+    monkeypatch.setattr(evaluation.requests, "get", get)
+    monkeypatch.setattr(evaluation.time, "sleep", lambda delay: sleeps.append(delay))
+    evaluation.verify_procedure(11)
+    assert len(calls) == 3
+    assert sleeps == [2, 4]
+
+
+def test_verify_procedure_raises_after_final_transient_attempt(monkeypatch) -> None:
+    """A terminal outage raises so the caller can record a blocker."""
+    import pytest
+    import requests
+
+    import scripts.evaluate_openml as evaluation
+
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        raise requests.ConnectionError("openml unreachable")
+
+    monkeypatch.setattr(evaluation.requests, "get", get)
+    monkeypatch.setattr(evaluation.time, "sleep", lambda delay: None)
+    with pytest.raises(requests.ConnectionError):
+        evaluation.verify_procedure(11)
+    assert len(calls) == 3
+
+
+def test_verify_procedure_does_not_retry_permanent_http_errors(monkeypatch) -> None:
+    """Client errors like 403 are terminal from the first attempt."""
+    import pytest
+    import requests
+
+    import scripts.evaluate_openml as evaluation
+
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        raise requests.HTTPError("403 Forbidden", response=SimpleNamespace(status_code=403))
+
+    monkeypatch.setattr(evaluation.requests, "get", get)
+    monkeypatch.setattr(evaluation.time, "sleep", lambda delay: None)
+    with pytest.raises(requests.HTTPError):
+        evaluation.verify_procedure(11)
+    assert len(calls) == 1
+
+
+def test_main_records_catalog_blocker_without_evaluation_results(monkeypatch, tmp_path) -> None:
+    """A terminal catalog failure writes an explicit blocker record, never a report."""
+    import json
+    import requests
+
+    import scripts.evaluate_openml as evaluation
+
+    def fail():
+        raise requests.ConnectionError("openml unreachable after 3 attempts")
+
+    monkeypatch.setattr(evaluation, "query_catalog", fail)
+    report, audit = tmp_path / "report.html", tmp_path / "audit.json"
+    assert evaluation.main(["--n", "1", "--seed", "41", "--report", str(report), "--audit", str(audit)]) == 1
+    recorded = json.loads(audit.read_text())
+    assert "openml unreachable after 3 attempts" in recorded["blocker"]
+    assert recorded["tasks"] == []
+    assert not report.exists()
+
+
+def test_main_resumes_from_checkpoint_and_skips_completed_tasks(monkeypatch, tmp_path) -> None:
+    """A matching checkpoint's evaluated tasks are skipped and their rows reused."""
+    import json
+
+    import scripts.evaluate_openml as evaluation
+
+    audit = tmp_path / "audit.json"
+    checkpoint = {
+        "catalog": {"retrieved_at": "earlier", "filters": "procedure.id in (5,6)"},
+        "catalog_candidates": 1,
+        "options": {"classification_type": "both", "n": 1, "seed": 41, "selected_task_ids": [7]},
+        "tasks": [
+            {
+                "task_id": 7,
+                "kind": "binary",
+                "status": "evaluated",
+                "run_id": 99,
+                "baseline": 0.5,
+                "improved": 0.6,
+                "gain": 0.1,
+                "threshold": None,
+            }
+        ],
+    }
+    audit.write_text(json.dumps(checkpoint), encoding="utf-8")
+
+    def get_task(task_id, **kwargs):
+        raise AssertionError(f"completed task {task_id} must not be re-attempted")
+
+    monkeypatch.setattr(evaluation, "query_catalog", lambda: ([7], {"retrieved_at": "now", "filters": "test"}))
+    monkeypatch.setattr(evaluation.openml.tasks, "get_task", get_task)
+    monkeypatch.setattr(evaluation.docker, "from_env", lambda: _sandbox_client())
+    report = tmp_path / "report.html"
+    assert evaluation.main(["--n", "1", "--seed", "41", "--report", str(report), "--audit", str(audit)]) == 0
+    assert "Run 99" in report.read_text()
+    assert json.loads(audit.read_text())["tasks"][0]["run_id"] == 99
+
+
+def test_main_retries_errored_tasks_from_checkpoint_and_keeps_terminal_rows(monkeypatch, tmp_path) -> None:
+    """Errored tasks are re-attempted on resume; terminal excluded rows are kept as-is."""
+    import json
+    import pandas as pd
+
+    import scripts.evaluate_openml as evaluation
+
+    audit = tmp_path / "audit.json"
+    checkpoint = {
+        "catalog": {"retrieved_at": "earlier", "filters": "procedure.id in (5,6)"},
+        "catalog_candidates": 2,
+        "options": {"classification_type": "both", "n": 2, "seed": 41, "selected_task_ids": [7, 8]},
+        "tasks": [
+            {"task_id": 7, "status": "error", "reason": "connection reset"},
+            {"task_id": 8, "status": "excluded", "reason": "checkpoint-preserved exclusion"},
+        ],
+    }
+    audit.write_text(json.dumps(checkpoint), encoding="utf-8")
+    attempted = []
+
+    def get_task(task_id, **kwargs):
+        attempted.append(task_id)
+        return SimpleNamespace(
+            task_id=task_id,
+            dataset_id=12,
+            target_name="class",
+            get_split_dimensions=lambda: (1, 1, 1),
+            get_train_test_split_indices=lambda: ([0, 1, 2], [3, 4, 5]),
+            get_dataset=lambda: SimpleNamespace(
+                name="toy",
+                get_data=lambda **kwargs: (
+                    pd.DataFrame({"feature": range(6)}),
+                    pd.Series(["a", "b", "a", "b", "a", "b"]),
+                    [False],
+                    ["feature"],
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(evaluation, "query_catalog", lambda: ([7, 8], {"retrieved_at": "now", "filters": "test"}))
+    monkeypatch.setattr(evaluation.openml.tasks, "get_task", get_task)
+    monkeypatch.setattr(evaluation.openml.runs, "list_runs", lambda **kwargs: {})
+    monkeypatch.setattr(evaluation.docker, "from_env", lambda: _sandbox_client())
+    report = tmp_path / "report.html"
+    assert evaluation.main(["--n", "2", "--seed", "41", "--report", str(report), "--audit", str(audit)]) == 0
+    tasks = json.loads(audit.read_text())["tasks"]
+    assert attempted == [7]
+    assert {task["task_id"] for task in tasks} == {7, 8}
+    preserved = next(task for task in tasks if task["task_id"] == 8)
+    assert preserved["reason"] == "checkpoint-preserved exclusion"
+    retried = next(task for task in tasks if task["task_id"] == 7)
+    assert retried["status"] == "excluded"
+    assert retried["reason"] == "no candidate runs"
+
+
+def test_main_rejects_checkpoint_recorded_for_different_invocation(monkeypatch, tmp_path) -> None:
+    """A checkpoint from a different seed/size/type is never silently mixed in."""
+    import json
+    import pytest
+
+    import scripts.evaluate_openml as evaluation
+
+    audit = tmp_path / "audit.json"
+    checkpoint = {
+        "options": {"classification_type": "both", "n": 1, "seed": 99, "selected_task_ids": [11]},
+        "tasks": [{"task_id": 11, "kind": "binary", "status": "evaluated", "run_id": 5}],
+    }
+    audit.write_text(json.dumps(checkpoint), encoding="utf-8")
+    monkeypatch.setattr(evaluation, "query_catalog", lambda: ([11], {"retrieved_at": "now", "filters": "test"}))
+    with pytest.raises(ValueError, match="different invocation"):
+        evaluation.main(
+            ["--n", "1", "--seed", "41", "--report", str(tmp_path / "report.html"), "--audit", str(audit)]
+        )
+
+
+def test_main_resumes_after_blocker_record_when_catalog_recovers(monkeypatch, tmp_path) -> None:
+    """A blocker-only audit does not block a later invocation: it holds no completed work."""
+    import json
+    import pandas as pd
+
+    import scripts.evaluate_openml as evaluation
+
+    audit = tmp_path / "audit.json"
+    audit.write_text(
+        json.dumps({"blocker": "OpenML catalog unavailable after retries: boom", "tasks": []}),
+        encoding="utf-8",
+    )
+
+    def get_task(task_id, **kwargs):
+        return SimpleNamespace(
+            task_id=task_id,
+            dataset_id=12,
+            target_name="class",
+            get_split_dimensions=lambda: (1, 1, 1),
+            get_train_test_split_indices=lambda: ([0, 1, 2], [3, 4, 5]),
+            get_dataset=lambda: SimpleNamespace(
+                name="toy",
+                get_data=lambda **kwargs: (
+                    pd.DataFrame({"feature": range(6)}),
+                    pd.Series(["a", "b", "a", "b", "a", "b"]),
+                    [False],
+                    ["feature"],
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(evaluation, "query_catalog", lambda: ([11], {"retrieved_at": "now", "filters": "test"}))
+    monkeypatch.setattr(evaluation.openml.tasks, "get_task", get_task)
+    monkeypatch.setattr(evaluation.openml.runs, "list_runs", lambda **kwargs: {})
+    monkeypatch.setattr(evaluation.docker, "from_env", lambda: _sandbox_client())
+    report = tmp_path / "report.html"
+    assert evaluation.main(["--n", "1", "--seed", "41", "--report", str(report), "--audit", str(audit)]) == 0
+    recorded = json.loads(audit.read_text())
+    assert "blocker" not in recorded
+    assert recorded["tasks"][0]["status"] == "excluded"
+    assert recorded["tasks"][0]["reason"] == "no candidate runs"
