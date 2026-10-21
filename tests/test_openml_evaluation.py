@@ -243,6 +243,20 @@ def test_docker_integration_is_opt_in() -> None:
         assert result.exit_code == 0
 
 
+def test_weka_runtime_is_readable_inside_opt_in_sandbox() -> None:
+    import os
+    import pytest
+
+    if os.environ.get("OPENML_DOCKER_INTEGRATION") != "1":
+        pytest.skip("set OPENML_DOCKER_INTEGRATION=1 to test the Weka runtime")
+    from scripts.evaluate_openml import require_docker
+
+    with require_docker() as container:
+        result = container.exec_run(["java", "-cp", "/opt/weka.jar", "weka.core.Version"])
+        assert result.exit_code == 0
+        assert b"3.8.6" in result.output
+
+
 def test_sample_attempts_exact_n_tasks_and_audits_exclusions(monkeypatch, tmp_path) -> None:
     import json
     import pandas as pd
