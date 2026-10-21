@@ -71,6 +71,23 @@ def classify_target(target: pd.Series | pd.DataFrame) -> tuple[str, tuple[str, .
     return ("binary" if len(labels) == 2 else "multiclass", labels)
 
 
+def discover_split(task: object) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Read the sole holdout split as sorted OpenML dataset row IDs.
+
+    Raises:
+        ValueError: If there are multiple splits or overlapping partitions.
+    """
+    if task.get_split_dimensions() != (1, 1, 1):
+        raise ValueError("expected exactly one train/test split")
+    train, test = task.get_train_test_split_indices()
+    train_ids, test_ids = tuple(sorted(map(int, train))), tuple(sorted(map(int, test)))
+    if len(train_ids) != len(set(train_ids)) or len(test_ids) != len(set(test_ids)):
+        raise ValueError("duplicate split row_id")
+    if set(train_ids) & set(test_ids):
+        raise ValueError("overlapping train/test row_id")
+    return train_ids, test_ids
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse evaluation options; reject invalid types and negative sample sizes."""
     config = json.loads(_CONFIG.read_text(encoding="utf-8"))
