@@ -197,6 +197,19 @@ def validate_artifact(
     return aligned
 
 
+def select_adapter(filename: str, flow_name: str) -> str:
+    """Select a sandbox-only adapter for a compatible serialized model format.
+
+    Raises:
+        ValueError: If the model format or runtime is unsupported.
+    """
+    if filename.endswith((".pkl", ".pickle")) and flow_name.startswith("sklearn."):
+        return "python-pickle"
+    if filename.endswith((".serialized", ".model")) and flow_name.startswith("weka."):
+        return "weka"
+    raise ValueError(f"unsupported model format/runtime: {filename} / {flow_name}")
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse evaluation options; reject invalid types and negative sample sizes."""
     config = json.loads(_CONFIG.read_text(encoding="utf-8"))
