@@ -638,17 +638,39 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
+def _load_checkpoint(audit_path: Path) -> dict[str, object] | None:
+    """Return the recorded audit as a dict, or None when the file does not exist.
+
+    Raises:
+        ValueError: If the file exists but is not valid JSON or not a JSON object.
+    """
+    if not audit_path.exists():
+        return None
+    try:
+        checkpoint = json.loads(audit_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"recorded audit is not valid JSON; refusing to overwrite possible results: {error}"
+        ) from error
+    if not isinstance(checkpoint, dict):
+        raise ValueError("recorded audit must be a JSON object; refusing to overwrite possible results")
+    return checkpoint
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the evaluation specified on the command line."""
     args = parse_args(argv)
     try:
         catalog, filters = query_catalog()
     except (requests.RequestException, RuntimeError, OpenMLServerError) as error:
+        message = f"OpenML catalog unavailable after retries: {error}"
+        checkpoint = _load_checkpoint(args.audit)
+        if checkpoint is None:
+            checkpoint = {"blocker": message, "tasks": []}
+        else:
+            checkpoint["blocker"] = message
         args.audit.parent.mkdir(parents=True, exist_ok=True)
-        args.audit.write_text(
-            json.dumps({"blocker": f"OpenML catalog unavailable after retries: {error}", "tasks": []}),
-            encoding="utf-8",
-        )
+        args.audit.write_text(json.dumps(checkpoint, indent=2, default=str), encoding="utf-8")
         return 1
     selected = sample_tasks(catalog, args.n, args.seed)
     options = {
@@ -662,18 +684,16 @@ def main(argv: list[str] | None = None) -> int:
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     rows: list[dict[str, object]] = []
-    if args.audit.exists():
-        try:
-            checkpoint = json.loads(args.audit.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as error:
-            raise ValueError(
-                f"recorded audit is not valid JSON; refusing to overwrite possible results: {error}"
-            ) from error
-        recorded_rows = checkpoint.get("tasks", []) if isinstance(checkpoint, dict) else []
+    checkpoint = _load_checkpoint(args.audit)
+    if checkpoint is not None:
+        recorded_rows = checkpoint.get("tasks", [])
+        if not isinstance(recorded_rows, list):
+            raise ValueError("recorded audit tasks must be a list; refusing to mix with new results")
+        resume_from: dict[str, object] | None = checkpoint
         if checkpoint.get("blocker") and not recorded_rows:
-            checkpoint = {}  # a blocker-only audit holds no completed work to resume
-        if checkpoint:
-            recorded_options = checkpoint.get("options", {})
+            resume_from = None  # a blocker-only audit holds no completed work to resume
+        if resume_from is not None:
+            recorded_options = resume_from.get("options", {})
             for key in ("classification_type", "n", "seed", "catalog_candidates", "selected_task_ids", "settings"):
                 if key not in recorded_options or recorded_options[key] != options.get(key):
                     raise ValueError("recorded checkpoint was created for a different invocation")
