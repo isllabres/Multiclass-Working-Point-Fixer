@@ -233,6 +233,35 @@ def docker_run_kwargs(image: str, input_dir: str, output_dir: str) -> dict[str, 
     }
 
 
+def orient_binary(
+    truth: list[str], prediction: list[str], labels: tuple[str, str], published: float | None
+) -> tuple[str, str]:
+    """Choose (positive, negative) using a comparable published binary F1.
+
+    With no score or an ambiguous tie, use the canonical sorted last label as
+    sklearn's positive class; both labels are explicitly encoded as 0/1.
+
+    Raises:
+        ValueError: If neither orientation matches the published score.
+    """
+    if published is None:
+        return labels[1], labels[0]
+    tolerance = json.loads(_CONFIG.read_text(encoding="utf-8"))["published_f1_tolerance"]
+    matches = []
+    for positive, negative in ((labels[1], labels[0]), (labels[0], labels[1])):
+        score = f1_score(
+            [int(value == positive) for value in truth],
+            [int(value == positive) for value in prediction],
+            pos_label=1,
+            zero_division=0,
+        )
+        if abs(score - published) <= tolerance:
+            matches.append((positive, negative))
+    if not matches:
+        raise ValueError("published F1 mismatch for both label orientations")
+    return matches[0]
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse evaluation options; reject invalid types and negative sample sizes."""
     config = json.loads(_CONFIG.read_text(encoding="utf-8"))
