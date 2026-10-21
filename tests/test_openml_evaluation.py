@@ -95,3 +95,25 @@ def test_rank_runs_uses_only_comparable_published_f1() -> None:
         (1, 0.8, "archived test F1"),
         (2, 0.7, "published f1_binary"),
     ]
+
+
+def test_archived_artifact_requires_split_rows_and_class_distributions() -> None:
+    import pandas as pd
+    import pytest
+
+    from scripts.evaluate_openml import validate_artifact
+
+    artifact = pd.DataFrame(
+        {
+            "row_id": [7, 2], "correct": ["b", "a"], "prediction": ["b", "a"],
+            "confidence.a": [0.1, 0.8], "confidence.b": [0.9, 0.2],
+        }
+    )
+    aligned = validate_artifact(artifact, (2, 7), ("a", "b"), {2: "a", 7: "b"})
+    assert aligned["row_id"].tolist() == [2, 7]
+    assert aligned[["confidence.a", "confidence.b"]].to_numpy().tolist() == [[0.8, 0.2], [0.1, 0.9]]
+    with pytest.raises(ValueError, match="row_id"):
+        validate_artifact(artifact, (2, 8), ("a", "b"), {2: "a", 8: "b"})
+    artifact.loc[0, "confidence.b"] = float("nan")
+    with pytest.raises(ValueError, match="probability"):
+        validate_artifact(artifact, (2, 7), ("a", "b"), {2: "a", 7: "b"})
