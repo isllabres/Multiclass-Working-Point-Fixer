@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import requests
 from openml.tasks import TaskType
+from sklearn.metrics import f1_score
 
 
 _CONFIG = Path(__file__).with_name("openml_config.json")
@@ -122,6 +123,43 @@ def discover_split(task: object) -> tuple[tuple[int, ...], tuple[int, ...]]:
     if set(train_ids) & set(test_ids):
         raise ValueError("overlapping train/test row_id")
     return train_ids, test_ids
+
+
+def rank_runs(
+    runs: list[object], kind: str, labels: tuple[str, ...]
+) -> list[tuple[object, float, str]]:
+    """Rank candidate runs by comparable published or archived test F1.
+
+    Selection on test outcomes is biased, including when F1 is calculated locally.
+    OpenML's generic `f_measure` does not document the required averaging and is
+    deliberately not used as a comparable score.
+    """
+    metric = "f1_binary" if kind == "binary" else "f1_macro"
+    ranked = []
+    for run in runs:
+        if metric in run.evaluations:
+            score = float(run.evaluations[metric])
+            source = f"published {metric}"
+        else:
+            archived = run.predictions
+            truth = archived["correct"].astype(str)
+            prediction = archived["prediction"].astype(str)
+            encoded_truth = pd.Categorical(truth, categories=labels).codes
+            encoded_pred = pd.Categorical(prediction, categories=labels).codes
+            if (encoded_truth < 0).any() or (encoded_pred < 0).any():
+                raise ValueError("archived run has labels outside task classes")
+            score = float(
+                f1_score(
+                    encoded_truth,
+                    encoded_pred,
+                    average="binary" if kind == "binary" else "macro",
+                    labels=list(range(len(labels))),
+                    zero_division=0,
+                )
+            )
+            source = "archived test F1"
+        ranked.append((run, score, source))
+    return sorted(ranked, key=lambda item: (-item[1], item[0].id))
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
