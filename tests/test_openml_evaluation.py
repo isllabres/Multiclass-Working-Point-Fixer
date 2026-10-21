@@ -190,3 +190,19 @@ def test_multiclass_fixer_is_fit_on_train_and_not_scanned() -> None:
     assert result["baseline"] == 1.0
     assert result["improved"] == 1.0
     assert result["threshold"] is None
+
+
+def test_aggregate_keeps_negative_gains_and_equal_task_weights() -> None:
+    from scripts.evaluate_openml import aggregate
+
+    results = [
+        {"kind": "binary", "baseline": 0.2, "improved": 0.5},
+        {"kind": "binary", "baseline": 0.7, "improved": 0.5},
+        {"kind": "multiclass", "baseline": 0.3, "improved": 0.3},
+    ]
+    summary = aggregate(results)
+    assert round(summary["overall"]["mean_gain"], 6) == round(0.1 / 3, 6)
+    assert round(summary["binary"]["mean_gain"], 6) == 0.05
+    assert summary["overall"]["improved"] == 1
+    assert summary["overall"]["decreased"] == 1
+    assert summary["overall"]["unchanged"] == 1
