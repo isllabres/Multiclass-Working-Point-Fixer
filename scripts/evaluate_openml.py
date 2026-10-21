@@ -350,6 +350,19 @@ def aggregate(results: list[dict[str, object]]) -> dict[str, dict[str, int | flo
     return summary
 
 
+def class_breakdown(
+    truth: list[int], previous: list[int], updated: list[int], labels: tuple[str, ...]
+) -> dict[str, dict[str, float]]:
+    """Calculate old and improved test F1 for every task class, including absent predictions."""
+    indices = list(range(len(labels)))
+    old = f1_score(truth, previous, labels=indices, average=None, zero_division=0)
+    new = f1_score(truth, updated, labels=indices, average=None, zero_division=0)
+    return {
+        label: {"previous": float(before), "new": float(after)}
+        for label, before, after in zip(labels, old, new, strict=True)
+    }
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse evaluation options; reject invalid types and negative sample sizes."""
     config = json.loads(_CONFIG.read_text(encoding="utf-8"))
