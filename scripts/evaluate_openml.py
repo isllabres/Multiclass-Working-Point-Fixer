@@ -1,18 +1,22 @@
 """Command-line entry point for reproducible OpenML evaluations."""
 
 import argparse
+import io
 import html
 import json
 import logging
 from collections import Counter
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Iterable
 from xml.etree import ElementTree
 
 import openml
+import arff
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -34,6 +38,24 @@ from multiclass_wp_fixer.classification.multiclass_working_point_fixer import (
 
 _CONFIG = Path(__file__).with_name("openml_config.json")
 _LOG = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class Sandbox:
+    """A single restricted Docker container with isolated per-task input/output roots."""
+
+    container: object
+    input_dir: Path
+    output_dir: Path
+
+    def exec_run(self, *args: object, **kwargs: object) -> object:
+        """Start a fresh model-inference process in the existing container."""
+        return self.container.exec_run(*args, **kwargs)
+
+    @property
+    def image(self) -> object:
+        """Return the actual immutable image identity from Docker."""
+        return self.container.image
 
 
 def filter_catalog(tasks: Iterable[object]) -> list[int]:
@@ -258,8 +280,6 @@ def require_docker():
     Raises:
         RuntimeError: If Docker or the pinned local image is unavailable.
     """
-    from tempfile import TemporaryDirectory
-
     image = json.loads(_CONFIG.read_text(encoding="utf-8"))["image"]
     try:
         client = docker.from_env()
@@ -271,14 +291,92 @@ def require_docker():
         with TemporaryDirectory(prefix="openml-input-") as input_dir, TemporaryDirectory(
             prefix="openml-output-"
         ) as output_dir:
+            Path(input_dir).chmod(0o755)
+            Path(output_dir).chmod(0o755)
             container = client.containers.run(**docker_run_kwargs(image, input_dir, output_dir))
             try:
-                yield container
+                yield Sandbox(container, Path(input_dir), Path(output_dir))
             finally:
                 container.stop(timeout=5)
                 container.remove(force=True)
     finally:
         client.close()
+
+
+def infer_train(
+    sandbox: Sandbox,
+    model_bytes: bytes,
+    adapter: str,
+    features: pd.DataFrame,
+    labels: tuple[str, ...],
+    target_name: str,
+    target_categories: tuple[str, ...] | None = None,
+) -> np.ndarray:
+    """Infer train probabilities in one fresh container process per fitted model.
+
+    Raises:
+        ValueError: For unsupported schemas, runtime errors, or invalid output.
+    """
+    with TemporaryDirectory(dir=sandbox.input_dir) as input_dir, TemporaryDirectory(
+        dir=sandbox.output_dir
+    ) as output_dir:
+        source = Path(input_dir)
+        destination = Path(output_dir)
+        source.chmod(0o755)
+        destination.chmod(0o777)
+        categorical = {
+            column: features[column].cat.categories.astype(str).tolist()
+            for column in features.columns if isinstance(features[column].dtype, pd.CategoricalDtype)
+        }
+        schema = {"columns": list(features.columns), "categorical": categorical, "labels": list(labels)}
+        if adapter == "python-pickle":
+            (source / "model.pkl").write_bytes(model_bytes)
+            features.to_csv(source / "features.csv", index=False)
+            (source / "schema.json").write_text(json.dumps(schema), encoding="utf-8")
+            command = ["python", "/opt/openml_inference.py", f"/input/{source.name}", f"/output/{destination.name}"]
+        elif adapter == "weka":
+            attributes = []
+            for column in features.columns:
+                if column in categorical:
+                    attributes.append((column, categorical[column]))
+                elif pd.api.types.is_numeric_dtype(features[column]):
+                    attributes.append((column, "NUMERIC"))
+                else:
+                    raise ValueError(f"unsupported Weka feature schema: {column}")
+            attributes.append((target_name, list(target_categories or labels)))
+            data = [
+                [None if pd.isna(value) else value for value in row] + [None]
+                for row in features.itertuples(index=False, name=None)
+            ]
+            (source / "train.arff").write_text(arff.dumps({"relation": "train", "attributes": attributes, "data": data}), encoding="utf-8")
+            (source / "model.model").write_bytes(model_bytes)
+            command = ["java", "-cp", "/opt/weka.jar", "weka.classifiers.trees.J48", "-l", f"/input/{source.name}/model.model", "-T", f"/input/{source.name}/train.arff", "-p", "0", "-distribution"]
+        else:
+            raise ValueError(f"unsupported sandbox adapter: {adapter}")
+        for file_path in source.iterdir():
+            file_path.chmod(0o444)
+        result = sandbox.exec_run(command, user="10001:10001", environment={}, workdir="/opt")
+        if result.exit_code:
+            raise ValueError(f"{adapter} sandbox inference failed: {result.output.decode(errors='replace')[:500]}")
+        if adapter == "python-pickle":
+            probabilities = np.load(destination / "probability.npy", allow_pickle=False)
+        else:
+            lines = [line.split() for line in result.output.decode(errors="replace").splitlines()]
+            distributions = []
+            for words in lines:
+                if words and words[0].isdigit() and len(words) >= 4 and words[1].endswith(":?"):
+                    distributions.append([float(value.replace("*", "")) for value in words[-1].split(",")])
+            probabilities = np.asarray(distributions, dtype=float)
+            order = tuple(target_categories or labels)
+            if set(order) != set(labels):
+                raise ValueError("Weka target schema differs from archived classes")
+            if probabilities.shape == (len(features), len(order)):
+                probabilities = probabilities[:, [order.index(label) for label in labels]]
+        if probabilities.shape != (len(features), len(labels)) or not np.isfinite(probabilities).all() or (
+            probabilities < 0
+        ).any() or not np.allclose(probabilities.sum(axis=1), 1, atol=0.02):
+            raise ValueError("sandbox probabilities are not aligned class distributions")
+        return probabilities
 
 
 def orient_binary(

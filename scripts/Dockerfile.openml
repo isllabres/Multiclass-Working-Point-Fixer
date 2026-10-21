@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends default-jre-hea
 RUN python -m pip install --no-cache-dir numpy==2.3.1 pandas==2.3.0 scipy==1.16.0 scikit-learn==1.7.0
 ADD --chmod=0444 --checksum=sha256:932ea2f342b58fe45736389e9c426d5b5955e610d1f5f6485117f532068915e9 https://repo.maven.apache.org/maven2/nz/ac/waikato/cms/weka/weka-stable/3.8.6/weka-stable-3.8.6.jar /opt/weka.jar
 RUN groupadd -g 10001 evaluator && useradd -u 10001 -g 10001 -M evaluator
+COPY --chmod=0444 scripts/openml_inference.py /opt/openml_inference.py
 USER 10001:10001
 WORKDIR /opt
 CMD ["sleep", "infinity"]
