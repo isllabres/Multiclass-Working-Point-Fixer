@@ -228,3 +228,16 @@ def test_html_report_is_standalone_when_every_task_is_excluded() -> None:
     assert "Evaluated: 0" in html
     assert "selection bias" in html.lower()
     assert "Search tasks" in html
+
+
+def test_docker_integration_is_opt_in() -> None:
+    import os
+    import pytest
+
+    if os.environ.get("OPENML_DOCKER_INTEGRATION") != "1":
+        pytest.skip("set OPENML_DOCKER_INTEGRATION=1 to test the local pinned image")
+    from scripts.evaluate_openml import require_docker
+
+    with require_docker() as container:
+        result = container.exec_run(["python", "--version"], user="10001:10001")
+        assert result.exit_code == 0
