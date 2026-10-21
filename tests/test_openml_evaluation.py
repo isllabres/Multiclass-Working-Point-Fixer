@@ -28,3 +28,16 @@ def test_catalog_requires_exact_holdout_type_and_records_filter() -> None:
         SimpleNamespace(task_id=13, estimation_procedure_id=4, estimation_procedure={"type": "holdout"}),
     ]
     assert filter_catalog(tasks) == [10, 11]
+
+
+def test_sample_selects_exactly_n_ids_before_any_eligibility_check() -> None:
+    import numpy as np
+
+    from scripts.evaluate_openml import sample_tasks
+
+    candidates = list(range(100, 120))
+    seed = 41
+    expected = np.random.default_rng(seed).choice(candidates, size=4, replace=False).tolist()
+    assert sample_tasks(candidates, n=4, seed=seed) == expected
+    assert sample_tasks(candidates, n=4, seed=seed) == expected
+    assert sample_tasks(candidates, n=None, seed=seed) == candidates
