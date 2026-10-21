@@ -8,6 +8,7 @@ from typing import Iterable
 
 import openml
 import numpy as np
+import pandas as pd
 from openml.tasks import TaskType
 
 
@@ -50,6 +51,24 @@ def sample_tasks(candidates: list[int], n: int | None, seed: int) -> list[int]:
     if n is None:
         return list(candidates)
     return np.random.default_rng(seed).choice(candidates, size=n, replace=False).tolist()
+
+
+def classify_target(target: pd.Series | pd.DataFrame) -> tuple[str, tuple[str, ...]]:
+    """Infer the type and canonical class order from downloaded single-label targets.
+
+    Raises:
+        ValueError: If the target is missing, multilabel, or has fewer than two classes.
+    """
+    if not isinstance(target, pd.Series):
+        raise ValueError("multilabel target: expected one target column")
+    if target.isna().any():
+        raise ValueError("missing target values")
+    if target.map(lambda value: not np.isscalar(value)).any():
+        raise ValueError("multilabel target values")
+    labels = tuple(sorted(target.astype(str).unique()))
+    if len(labels) < 2:
+        raise ValueError("invalid target: fewer than two classes")
+    return ("binary" if len(labels) == 2 else "multiclass", labels)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
