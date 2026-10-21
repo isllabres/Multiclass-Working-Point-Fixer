@@ -237,6 +237,35 @@ def validate_artifact(
     return aligned
 
 
+def choose_run(
+    runs: list[object],
+    kind: str,
+    labels: tuple[str, ...],
+    test_ids: tuple[int, ...],
+    truth: dict[int, str],
+) -> tuple[object, pd.DataFrame, list[str]]:
+    """Walk test-F1-ranked runs and retain the first artifact-eligible candidate.
+
+    Raises:
+        ValueError: If every archived candidate is ineligible.
+    """
+    rejected = []
+    for run, _, _ in rank_runs(runs, kind, labels):
+        try:
+            if not run.output_files.get("model_serialized"):
+                raise ValueError("no downloadable fitted model")
+            extension = ".model" if run.flow_name.startswith("weka.") else ".pkl"
+            select_adapter(f"model{extension}", run.flow_name)
+            aligned = validate_artifact(run.predictions, test_ids, labels, truth)
+            if kind == "binary":
+                published = run.evaluations.get("f1_binary")
+                orient_binary(aligned["correct"].astype(str).tolist(), aligned["prediction"].astype(str).tolist(), labels, published)
+            return run, aligned, rejected
+        except (KeyError, ValueError) as error:
+            rejected.append(f"run {run.id}: {error}")
+    raise ValueError("no eligible run: " + "; ".join(rejected))
+
+
 def select_adapter(filename: str, flow_name: str) -> str:
     """Select a sandbox-only adapter for a compatible serialized model format.
 
