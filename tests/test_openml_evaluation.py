@@ -743,3 +743,84 @@ def test_main_rejects_checkpoint_with_different_fixer_settings(monkeypatch, tmp_
         )
     assert json.loads(audit.read_text())["tasks"][0]["run_id"] == 5
     assert not (tmp_path / "report.html").exists()
+
+
+def test_main_preserves_checkpoint_rows_when_catalog_fails(monkeypatch, tmp_path) -> None:
+    """A catalog blocker keeps an existing checkpoint's completed rows resumable."""
+    import json
+    import pytest
+    import requests
+
+    import scripts.evaluate_openml as evaluation
+
+    audit = tmp_path / "audit.json"
+    settings = json.loads(Path(__file__).resolve().parents[1].joinpath("scripts", "openml_config.json").read_text(encoding="utf-8"))
+    checkpoint = {
+        "catalog": {"retrieved_at": "earlier", "filters": "procedure.id in (5,6)"},
+        "catalog_candidates": 1,
+        "options": {
+            "classification_type": "both",
+            "n": 1,
+            "seed": 41,
+            "catalog_candidates": 1,
+            "selected_task_ids": [11],
+            "settings": settings,
+        },
+        "tasks": [
+            {
+                "task_id": 11,
+                "kind": "binary",
+                "status": "evaluated",
+                "run_id": 5,
+                "baseline": 0.5,
+                "improved": 0.6,
+                "gain": 0.1,
+                "threshold": None,
+            }
+        ],
+    }
+    audit.write_text(json.dumps(checkpoint), encoding="utf-8")
+
+    def fail():
+        raise requests.ConnectionError("catalog outage persists")
+
+    monkeypatch.setattr(evaluation, "query_catalog", fail)
+    report = tmp_path / "report.html"
+    assert evaluation.main(["--n", "1", "--seed", "41", "--report", str(report), "--audit", str(audit)]) == 1
+    recorded = json.loads(audit.read_text())
+    assert "catalog outage persists" in recorded["blocker"]
+    assert recorded["tasks"][0]["run_id"] == 5
+    assert not report.exists()
+
+    # After OpenML recovers the preserved rows resume instead of repeating work.
+    monkeypatch.setattr(evaluation, "query_catalog", lambda: ([11], {"retrieved_at": "now", "filters": "test"}))
+    monkeypatch.setattr(
+        evaluation.openml.tasks,
+        "get_task",
+        lambda task_id, **kwargs: pytest.fail(f"completed task {task_id} must not be re-attempted"),
+    )
+    monkeypatch.setattr(evaluation.docker, "from_env", lambda: _sandbox_client())
+    assert evaluation.main(["--n", "1", "--seed", "41", "--report", str(report), "--audit", str(audit)]) == 0
+    resumed = json.loads(audit.read_text())
+    assert "blocker" not in resumed
+    assert resumed["tasks"][0]["run_id"] == 5
+    assert "Run 5" in report.read_text()
+
+
+def test_main_rejects_falsy_invalid_checkpoint_roots(monkeypatch, tmp_path) -> None:
+    """Empty-object, list, and null audit roots fail closed instead of being overwritten."""
+    import pytest
+
+    import scripts.evaluate_openml as evaluation
+
+    monkeypatch.setattr(evaluation, "query_catalog", lambda: ([11], {"retrieved_at": "now", "filters": "test"}))
+    monkeypatch.setattr(evaluation.docker, "from_env", lambda: pytest.fail("Docker must not start on an invalid checkpoint"))
+    for index, root in enumerate(("{}", "[]", "null")):
+        audit = tmp_path / f"audit_{index}.json"
+        audit.write_text(root, encoding="utf-8")
+        with pytest.raises(ValueError):
+            evaluation.main(
+                ["--n", "1", "--seed", "41", "--report", str(tmp_path / f"report_{index}.html"), "--audit", str(audit)]
+            )
+        assert audit.read_text() == root
+        assert not (tmp_path / f"report_{index}.html").exists()
