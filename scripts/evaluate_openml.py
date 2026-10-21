@@ -4,6 +4,7 @@ import argparse
 import html
 import json
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -16,6 +17,8 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import requests
 import torch
+import docker
+from docker.errors import DockerException, ImageNotFound
 from openml.tasks import TaskType
 from sklearn.metrics import f1_score
 from multiclass_wp_fixer.classification.metrics_working_point import (
@@ -243,6 +246,36 @@ def docker_run_kwargs(image: str, input_dir: str, output_dir: str) -> dict[str, 
             output_dir: {"bind": "/output", "mode": "rw"},
         },
     }
+
+
+@contextmanager
+def require_docker():
+    """Require a daemon and built image; reuse one sandbox for the invocation.
+
+    Raises:
+        RuntimeError: If Docker or the pinned local image is unavailable.
+    """
+    from tempfile import TemporaryDirectory
+
+    image = json.loads(_CONFIG.read_text(encoding="utf-8"))["image"]
+    try:
+        client = docker.from_env()
+        client.ping()
+        client.images.get(image)
+    except (DockerException, ImageNotFound) as error:
+        raise RuntimeError(f"Docker daemon/pinned image unavailable ({image}): {error}") from error
+    try:
+        with TemporaryDirectory(prefix="openml-input-") as input_dir, TemporaryDirectory(
+            prefix="openml-output-"
+        ) as output_dir:
+            container = client.containers.run(**docker_run_kwargs(image, input_dir, output_dir))
+            try:
+                yield container
+            finally:
+                container.stop(timeout=5)
+                container.remove(force=True)
+    finally:
+        client.close()
 
 
 def orient_binary(
