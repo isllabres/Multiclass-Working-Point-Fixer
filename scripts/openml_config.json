@@ -1,1 +1,1 @@
-{"seed": 42, "published_f1_tolerance": 0.0001, "scanner_points": 150}
+{"seed": 42, "published_f1_tolerance": 0.0001, "scanner_points": 150, "fixer_learning_rate": 0.1, "fixer_epochs": 3, "fixer_train_batch_size": 3, "fixer_val_batch_size": 3}

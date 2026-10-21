@@ -11,11 +11,15 @@ import openml
 import numpy as np
 import pandas as pd
 import requests
+import torch
 from openml.tasks import TaskType
 from sklearn.metrics import f1_score
 from multiclass_wp_fixer.classification.metrics_working_point import (
     metrics_scanning_working_points_plotly,
     predict_with_working_point,
+)
+from multiclass_wp_fixer.classification.multiclass_working_point_fixer import (
+    multiclass_Working_Point_Fixer,
 )
 
 
@@ -274,10 +278,42 @@ def compare_predictions(
     test_onehot: np.ndarray,
     archived_predictions: np.ndarray,
 ) -> dict[str, object]:
-    """Tune a binary working point on train only and score archived test rows."""
-    if kind != "binary":
-        raise ValueError("only binary scanner is implemented")
+    """Tune a binary scanner or multiclass fixer on train, then score test."""
     config = json.loads(_CONFIG.read_text(encoding="utf-8"))
+    if kind == "multiclass":
+        params = {
+            "input_size": train_probs.shape[1],
+            "learning_rate": config["fixer_learning_rate"],
+            "num_epochs": config["fixer_epochs"],
+            "momentum": 0.0,
+            "centered": False,
+            "multiclass_f1_average": "macro",
+            "train_batch_size": config["fixer_train_batch_size"],
+            "val_batch_size": config["fixer_val_batch_size"],
+        }
+        if len(train_probs) < params["train_batch_size"] or len(test_probs) < params["val_batch_size"]:
+            raise ValueError("no training/validation batch would be processed (drop_last=True)")
+        with torch.random.fork_rng():
+            torch.manual_seed(config["seed"])
+            fixer = multiclass_Working_Point_Fixer(model_params=params)
+            fixer.fit(
+                x_tr=train_probs.astype(np.float32),
+                y_tr=train_onehot.astype(np.float32),
+                x_tst=test_probs.astype(np.float32),
+                y_tst=test_onehot.astype(np.float32),
+            )
+            improved = fixer.predict(test_probs.astype(np.float32)).argmax(axis=1)
+        truth = test_onehot.argmax(axis=1)
+        baseline = test_probs.argmax(axis=1)
+        return {
+            "method": "fixer",
+            "baseline": float(f1_score(truth, baseline, average="macro", zero_division=0)),
+            "improved": float(f1_score(truth, improved, average="macro", zero_division=0)),
+            "threshold": None,
+            "predictions": improved,
+        }
+    if kind != "binary":
+        raise ValueError(f"unsupported classification type: {kind}")
     scanned = metrics_scanning_working_points_plotly(
         pred_proba=train_probs[:, 1],
         y_true=train_onehot[:, 1],
