@@ -124,12 +124,35 @@ def query_catalog(attempts: int = 3) -> tuple[list[int], dict[str, str]]:
 
 
 def verify_procedure(task_id: int) -> None:
-    """Check the actual task procedure metadata before attempting any run."""
-    response = requests.get(f"{openml.config.server}/task/{task_id}", timeout=30)
-    response.raise_for_status()
-    identifier, procedure_type = read_procedure(response.text)
-    if identifier not in (5, 6) or procedure_type != "holdout":
-        raise ValueError(f"task {task_id} has incompatible procedure {identifier}/{procedure_type}")
+    """Check the actual task procedure metadata before attempting any run.
+
+    Transient request failures (connection issues, timeouts, 5xx responses) are
+    retried with exponential backoff so a flaky OpenML response cannot silently
+    shrink the candidate pool. Permanent HTTP client errors (4xx) and metadata
+    mismatches raise immediately.
+    """
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            response = requests.get(f"{openml.config.server}/task/{task_id}", timeout=30)
+            response.raise_for_status()
+            identifier, procedure_type = read_procedure(response.text)
+            if identifier not in (5, 6) or procedure_type != "holdout":
+                raise ValueError(
+                    f"task {task_id} has incompatible procedure {identifier}/{procedure_type}"
+                )
+            return
+        except (requests.ConnectionError, requests.Timeout) as error:
+            last_error = error
+        except requests.HTTPError as error:
+            status_code = getattr(getattr(error, "response", None), "status_code", None)
+            if status_code is not None and status_code < 500:
+                raise
+            last_error = error
+        if attempt < 2:
+            time.sleep(2 ** (attempt + 1))
+    assert last_error is not None
+    raise last_error
 
 
 def sample_tasks(candidates: list[int], n: int | None, seed: int) -> list[int]:
@@ -618,7 +641,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     """Run the evaluation specified on the command line."""
     args = parse_args(argv)
-    catalog, filters = query_catalog()
+    try:
+        catalog, filters = query_catalog()
+    except (requests.RequestException, RuntimeError, OpenMLServerError) as error:
+        args.audit.parent.mkdir(parents=True, exist_ok=True)
+        args.audit.write_text(
+            json.dumps({"blocker": f"OpenML catalog unavailable after retries: {error}", "tasks": []}),
+            encoding="utf-8",
+        )
+        return 1
     selected = sample_tasks(catalog, args.n, args.seed)
     options = {
         "classification_type": args.classification_type,
@@ -631,9 +662,26 @@ def main(argv: list[str] | None = None) -> int:
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     rows: list[dict[str, object]] = []
+    if args.audit.exists():
+        try:
+            checkpoint = json.loads(args.audit.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            checkpoint = {}
+        if checkpoint:
+            recorded_options = checkpoint.get("options", {})
+            for key in ("classification_type", "n", "seed", "catalog_candidates", "selected_task_ids"):
+                if key in recorded_options and recorded_options[key] != options.get(key):
+                    raise ValueError("recorded checkpoint was created for a different invocation")
+            rows = [
+                row for row in checkpoint.get("tasks", [])
+                if row.get("status") in ("evaluated", "excluded")
+            ]
     with require_docker() as container:
         options["image_id"] = getattr(getattr(container, "image", None), "id", "unknown")
         for index, task_id in enumerate(selected, start=1):
+            if any(row.get("task_id") == task_id for row in rows):
+                _LOG.info("Skipping task %s: already completed in checkpoint", task_id)
+                continue
             _LOG.info("Attempting task %s (%s/%s)", task_id, index, len(selected))
             row: dict[str, object] = {"task_id": task_id}
             try:
@@ -727,6 +775,11 @@ def main(argv: list[str] | None = None) -> int:
                 json.dumps({"catalog": filters, "catalog_candidates": len(catalog), "options": options, "tasks": rows}, indent=2, default=str),
                 encoding="utf-8",
             )
+    args.audit.parent.mkdir(parents=True, exist_ok=True)
+    args.audit.write_text(
+        json.dumps({"catalog": filters, "catalog_candidates": len(catalog), "options": options, "tasks": rows}, indent=2, default=str),
+        encoding="utf-8",
+    )
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(render_report(rows, filters, options), encoding="utf-8")
     return 0
