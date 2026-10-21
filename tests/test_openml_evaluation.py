@@ -117,3 +117,14 @@ def test_archived_artifact_requires_split_rows_and_class_distributions() -> None
     artifact.loc[0, "confidence.b"] = float("nan")
     with pytest.raises(ValueError, match="probability"):
         validate_artifact(artifact, (2, 7), ("a", "b"), {2: "a", 7: "b"})
+
+
+def test_adapter_dispatch_rejects_unsupported_models() -> None:
+    import pytest
+
+    from scripts.evaluate_openml import select_adapter
+
+    assert select_adapter("fitted.pkl", "sklearn.pipeline.Pipeline") == "python-pickle"
+    assert select_adapter("model.serialized", "weka.J48") == "weka"
+    with pytest.raises(ValueError, match="unsupported"):
+        select_adapter("model.onnx", "tensorflow.keras.Model")
