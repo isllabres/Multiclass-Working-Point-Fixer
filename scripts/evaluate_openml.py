@@ -334,6 +334,22 @@ def compare_predictions(
     }
 
 
+def aggregate(results: list[dict[str, object]]) -> dict[str, dict[str, int | float | None]]:
+    """Summarize signed F1 changes equally per task, overall and by task type."""
+    summary = {}
+    for kind in ("overall", "binary", "multiclass"):
+        subset = [row for row in results if kind == "overall" or row["kind"] == kind]
+        deltas = [float(row["improved"]) - float(row["baseline"]) for row in subset]
+        summary[kind] = {
+            "count": len(deltas),
+            "mean_gain": float(np.mean(deltas)) if deltas else None,
+            "improved": sum(delta > 0 for delta in deltas),
+            "unchanged": sum(delta == 0 for delta in deltas),
+            "decreased": sum(delta < 0 for delta in deltas),
+        }
+    return summary
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse evaluation options; reject invalid types and negative sample sizes."""
     config = json.loads(_CONFIG.read_text(encoding="utf-8"))
