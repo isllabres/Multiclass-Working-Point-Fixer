@@ -286,3 +286,24 @@ def test_sample_attempts_exact_n_tasks_and_audits_exclusions(monkeypatch, tmp_pa
     assert recorded["tasks"][0]["status"] == "excluded"
     assert recorded["tasks"][0]["reason"] == "no candidate runs"
     assert "Evaluated: 0" in report.read_text()
+
+
+def test_pickle_adapter_infers_only_inside_opt_in_docker() -> None:
+    import os
+    import pickle
+    import numpy as np
+    import pandas as pd
+    import pytest
+    from sklearn.linear_model import LogisticRegression
+
+    if os.environ.get("OPENML_DOCKER_INTEGRATION") != "1":
+        pytest.skip("set OPENML_DOCKER_INTEGRATION=1 to run a locally created pickle in Docker")
+    from scripts.evaluate_openml import infer_train, require_docker
+
+    features = pd.DataFrame({"x": [-2.0, -1.0, 1.0, 2.0]})
+    model = LogisticRegression().fit(features, ["a", "a", "b", "b"])
+    with require_docker() as sandbox:
+        probabilities = infer_train(sandbox, pickle.dumps(model), "python-pickle", features, ("a", "b"), "label")
+    assert probabilities.shape == (4, 2)
+    assert np.allclose(probabilities.sum(axis=1), 1)
+    assert probabilities[0, 0] > probabilities[-1, 0]
