@@ -5,10 +5,12 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
+from xml.etree import ElementTree
 
 import openml
 import numpy as np
 import pandas as pd
+import requests
 from openml.tasks import TaskType
 
 
@@ -25,6 +27,25 @@ def filter_catalog(tasks: Iterable[object]) -> list[int]:
     )
 
 
+def read_procedure(xml: str) -> tuple[int, str]:
+    """Extract the actual estimation procedure ID and type from OpenML task XML.
+
+    The OpenML Python SDK silently defaults `task.estimation_procedure_id` to 1
+    when it reads an existing task; that attribute is not the server's ID.
+    """
+    root = ElementTree.fromstring(xml)
+    namespace = {"oml": "http://openml.org/openml"}
+    for entry in root.findall("oml:input", namespace):
+        if entry.get("name") == "estimation_procedure":
+            procedure = entry.find("oml:estimation_procedure", namespace)
+            if procedure is not None:
+                identifier = procedure.findtext("oml:id", namespaces=namespace)
+                procedure_type = procedure.findtext("oml:type", namespaces=namespace)
+                if identifier is not None and procedure_type is not None:
+                    return int(identifier), procedure_type
+    raise ValueError("task metadata has no estimation procedure ID/type")
+
+
 def query_catalog() -> tuple[list[int], dict[str, str]]:
     """Fetch current classification tasks and verify each holdout's API procedure type."""
     listing = openml.tasks.list_tasks(
@@ -33,11 +54,26 @@ def query_catalog() -> tuple[list[int], dict[str, str]]:
     candidates = listing.loc[
         listing["estimation_procedure"].isin(("10% Holdout set", "33% Holdout set"))
     ]
-    tasks = [openml.tasks.get_task(int(task_id)) for task_id in candidates.index]
-    return filter_catalog(tasks), {
+    verified = []
+    for task_id in candidates.index:
+        try:
+            verify_procedure(int(task_id))
+        except ValueError:
+            continue
+        verified.append(int(task_id))
+    return sorted(verified), {
         "retrieved_at": datetime.now(timezone.utc).isoformat(),
-        "filters": "task_type=supervised_classification(1); procedure_id in (5,6); procedure.type == holdout",
+        "filters": "task_type=supervised_classification(1); listing procedure names 10%/33% Holdout set; XML procedure.id in (5,6) and procedure.type == holdout",
     }
+
+
+def verify_procedure(task_id: int) -> None:
+    """Check the actual task procedure metadata before attempting any run."""
+    response = requests.get(f"{openml.config.server}/task/{task_id}", timeout=30)
+    response.raise_for_status()
+    identifier, procedure_type = read_procedure(response.text)
+    if identifier not in (5, 6) or procedure_type != "holdout":
+        raise ValueError(f"task {task_id} has incompatible procedure {identifier}/{procedure_type}")
 
 
 def sample_tasks(candidates: list[int], n: int | None, seed: int) -> list[int]:
