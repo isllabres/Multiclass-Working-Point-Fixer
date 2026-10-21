@@ -13,6 +13,10 @@ setup(
         'plotly',
         'torch',
     ],
+    extras_require={
+        'evaluation': ['openml==0.15.1', 'docker==7.2.0'],
+        'test': ['pytest==9.1.1'],
+    },
     author='Ignacio Serrano',
     author_email='ignaciosll96@gmail.com',
     description='This repository is designed to handle and fix the decision threshold or working point in a multiclass classification problem.',
