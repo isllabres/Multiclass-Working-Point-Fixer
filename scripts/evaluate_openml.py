@@ -685,11 +685,12 @@ def main(argv: list[str] | None = None) -> int:
     }
     rows: list[dict[str, object]] = []
     checkpoint = _load_checkpoint(args.audit)
+    resume_from: dict[str, object] | None = None
     if checkpoint is not None:
         recorded_rows = checkpoint.get("tasks", [])
         if not isinstance(recorded_rows, list):
             raise ValueError("recorded audit tasks must be a list; refusing to mix with new results")
-        resume_from: dict[str, object] | None = checkpoint
+        resume_from = checkpoint
         if checkpoint.get("blocker") and not recorded_rows:
             resume_from = None  # a blocker-only audit holds no completed work to resume
         if resume_from is not None:
@@ -697,12 +698,16 @@ def main(argv: list[str] | None = None) -> int:
             for key in ("classification_type", "n", "seed", "catalog_candidates", "selected_task_ids", "settings"):
                 if key not in recorded_options or recorded_options[key] != options.get(key):
                     raise ValueError("recorded checkpoint was created for a different invocation")
+            if recorded_options.get("versions") != options["versions"]:
+                raise ValueError("recorded checkpoint was created with different package versions")
             rows = [
                 row for row in recorded_rows
                 if row.get("status") in ("evaluated", "excluded")
             ]
     with require_docker() as container:
         options["image_id"] = getattr(getattr(container, "image", None), "id", "unknown")
+        if resume_from is not None and resume_from.get("options", {}).get("image_id") != options["image_id"]:
+            raise ValueError("recorded checkpoint was created with a different Docker image")
         for index, task_id in enumerate(selected, start=1):
             if any(row.get("task_id") == task_id for row in rows):
                 _LOG.info("Skipping task %s: already completed in checkpoint", task_id)

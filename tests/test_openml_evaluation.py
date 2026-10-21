@@ -388,10 +388,14 @@ def test_catalog_retries_transient_openml_503_without_changing_candidate_pool(mo
 
 def _sandbox_client() -> SimpleNamespace:
     """Build a fake Docker client like the sandbox test's inline one."""
-    container = SimpleNamespace(stop=lambda **kwargs: None, remove=lambda **kwargs: None)
+    container = SimpleNamespace(
+        stop=lambda **kwargs: None,
+        remove=lambda **kwargs: None,
+        image=SimpleNamespace(id="sha256:mock-image"),
+    )
     return SimpleNamespace(
         ping=lambda: True,
-        images=SimpleNamespace(get=lambda image: SimpleNamespace(id="sha256:test")),
+        images=SimpleNamespace(get=lambda image: SimpleNamespace(id="sha256:mock-image")),
         containers=SimpleNamespace(run=lambda **kwargs: container),
         close=lambda: None,
     )
@@ -496,6 +500,7 @@ def test_main_resumes_from_checkpoint_and_skips_completed_tasks(monkeypatch, tmp
 
     import scripts.evaluate_openml as evaluation
 
+    packages = ("openml", "docker", "numpy", "scikit-learn", "torch", "plotly")
     audit = tmp_path / "audit.json"
     settings = json.loads(Path(__file__).resolve().parents[1].joinpath("scripts", "openml_config.json").read_text(encoding="utf-8"))
     checkpoint = {
@@ -508,6 +513,8 @@ def test_main_resumes_from_checkpoint_and_skips_completed_tasks(monkeypatch, tmp
             "catalog_candidates": 1,
             "selected_task_ids": [7],
             "settings": settings,
+            "versions": {package: "1.0.0" for package in packages},
+            "image_id": "sha256:mock-image",
         },
         "tasks": [
             {
@@ -527,6 +534,7 @@ def test_main_resumes_from_checkpoint_and_skips_completed_tasks(monkeypatch, tmp
     def get_task(task_id, **kwargs):
         raise AssertionError(f"completed task {task_id} must not be re-attempted")
 
+    monkeypatch.setattr(evaluation, "version", lambda name: "1.0.0")
     monkeypatch.setattr(evaluation, "query_catalog", lambda: ([7], {"retrieved_at": "now", "filters": "test"}))
     monkeypatch.setattr(evaluation.openml.tasks, "get_task", get_task)
     monkeypatch.setattr(evaluation.docker, "from_env", lambda: _sandbox_client())
@@ -543,6 +551,7 @@ def test_main_retries_errored_tasks_from_checkpoint_and_keeps_terminal_rows(monk
 
     import scripts.evaluate_openml as evaluation
 
+    packages = ("openml", "docker", "numpy", "scikit-learn", "torch", "plotly")
     audit = tmp_path / "audit.json"
     settings = json.loads(Path(__file__).resolve().parents[1].joinpath("scripts", "openml_config.json").read_text(encoding="utf-8"))
     checkpoint = {
@@ -555,6 +564,8 @@ def test_main_retries_errored_tasks_from_checkpoint_and_keeps_terminal_rows(monk
             "catalog_candidates": 2,
             "selected_task_ids": [7, 8],
             "settings": settings,
+            "versions": {package: "1.0.0" for package in packages},
+            "image_id": "sha256:mock-image",
         },
         "tasks": [
             {"task_id": 7, "status": "error", "reason": "connection reset"},
@@ -583,6 +594,7 @@ def test_main_retries_errored_tasks_from_checkpoint_and_keeps_terminal_rows(monk
             ),
         )
 
+    monkeypatch.setattr(evaluation, "version", lambda name: "1.0.0")
     monkeypatch.setattr(evaluation, "query_catalog", lambda: ([7, 8], {"retrieved_at": "now", "filters": "test"}))
     monkeypatch.setattr(evaluation.openml.tasks, "get_task", get_task)
     monkeypatch.setattr(evaluation.openml.runs, "list_runs", lambda **kwargs: {})
@@ -753,6 +765,7 @@ def test_main_preserves_checkpoint_rows_when_catalog_fails(monkeypatch, tmp_path
 
     import scripts.evaluate_openml as evaluation
 
+    packages = ("openml", "docker", "numpy", "scikit-learn", "torch", "plotly")
     audit = tmp_path / "audit.json"
     settings = json.loads(Path(__file__).resolve().parents[1].joinpath("scripts", "openml_config.json").read_text(encoding="utf-8"))
     checkpoint = {
@@ -765,6 +778,8 @@ def test_main_preserves_checkpoint_rows_when_catalog_fails(monkeypatch, tmp_path
             "catalog_candidates": 1,
             "selected_task_ids": [11],
             "settings": settings,
+            "versions": {package: "1.0.0" for package in packages},
+            "image_id": "sha256:mock-image",
         },
         "tasks": [
             {
@@ -784,6 +799,7 @@ def test_main_preserves_checkpoint_rows_when_catalog_fails(monkeypatch, tmp_path
     def fail():
         raise requests.ConnectionError("catalog outage persists")
 
+    monkeypatch.setattr(evaluation, "version", lambda name: "1.0.0")
     monkeypatch.setattr(evaluation, "query_catalog", fail)
     report = tmp_path / "report.html"
     assert evaluation.main(["--n", "1", "--seed", "41", "--report", str(report), "--audit", str(audit)]) == 1
@@ -824,3 +840,64 @@ def test_main_rejects_falsy_invalid_checkpoint_roots(monkeypatch, tmp_path) -> N
             )
         assert audit.read_text() == root
         assert not (tmp_path / f"report_{index}.html").exists()
+
+
+def test_main_rejects_checkpoint_with_mismatched_versions_or_image_id(monkeypatch, tmp_path) -> None:
+    """Resuming with different package versions or a different Docker image fails closed."""
+    import json as json_module
+    import pytest
+
+    import scripts.evaluate_openml as evaluation
+
+    packages = ("openml", "docker", "numpy", "scikit-learn", "torch", "plotly")
+    settings = json_module.loads(
+        Path(__file__).resolve().parents[1].joinpath("scripts", "openml_config.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(evaluation, "version", lambda name: "1.0.0")
+    monkeypatch.setattr(evaluation, "query_catalog", lambda: ([11], {"retrieved_at": "now", "filters": "test"}))
+    monkeypatch.setattr(evaluation.docker, "from_env", lambda: _sandbox_client())
+    monkeypatch.setattr(
+        evaluation.openml.tasks,
+        "get_task",
+        lambda task_id, **kwargs: pytest.fail(f"task {task_id} must not be attempted on a mismatched checkpoint"),
+    )
+    base_options = {
+        "classification_type": "both",
+        "n": 1,
+        "seed": 41,
+        "catalog_candidates": 1,
+        "selected_task_ids": [11],
+        "settings": settings,
+        "versions": {package: "1.0.0" for package in packages},
+        "image_id": "sha256:mock-image",
+    }
+    rows = [
+        {
+            "task_id": 11,
+            "kind": "binary",
+            "status": "evaluated",
+            "run_id": 5,
+            "baseline": 0.5,
+            "improved": 0.6,
+            "gain": 0.1,
+            "threshold": None,
+        }
+    ]
+
+    for label, extra, expected in (
+        ("versions", {"versions": {package: "0.9.0" for package in packages}}, "different package versions"),
+        ("image", {"image_id": "sha256:other-image"}, "different Docker image"),
+    ):
+        audit = tmp_path / f"audit_{label}.json"
+        checkpoint = {
+            "catalog": {"retrieved_at": "earlier", "filters": "procedure.id in (5,6)"},
+            "catalog_candidates": 1,
+            "options": {**base_options, **extra},
+            "tasks": rows,
+        }
+        audit.write_text(json_module.dumps(checkpoint), encoding="utf-8")
+        with pytest.raises(ValueError, match=expected):
+            evaluation.main(
+                ["--n", "1", "--seed", "41", "--report", str(tmp_path / f"report_{label}.html"), "--audit", str(audit)]
+            )
+        assert not (tmp_path / f"report_{label}.html").exists()
