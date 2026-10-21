@@ -128,3 +128,20 @@ def test_adapter_dispatch_rejects_unsupported_models() -> None:
     assert select_adapter("model.serialized", "weka.J48") == "weka"
     with pytest.raises(ValueError, match="unsupported"):
         select_adapter("model.onnx", "tensorflow.keras.Model")
+
+
+def test_docker_restrictions_disallow_host_access_and_privilege() -> None:
+    from scripts.evaluate_openml import docker_run_kwargs
+
+    flags = docker_run_kwargs("evaluation:sha256-test", "/safe/input", "/safe/output")
+    assert flags["network_mode"] == "none"
+    assert flags["read_only"] is True
+    assert flags["cap_drop"] == ["ALL"]
+    assert flags["privileged"] is False
+    assert flags["user"] == "10001:10001"
+    assert flags["environment"] == {}
+    assert flags["pids_limit"] > 0
+    assert flags["mem_limit"]
+    assert flags["nano_cpus"] > 0
+    assert flags["volumes"]["/safe/input"]["mode"] == "ro"
+    assert not any("docker.sock" in key for key in flags["volumes"])
