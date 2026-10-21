@@ -174,3 +174,19 @@ def test_binary_scanner_selects_on_train_and_applies_to_test() -> None:
     assert result["baseline"] == 0.0
     assert result["improved"] == 2 / 3
     assert 0.1 < result["threshold"] <= 0.35
+
+
+def test_multiclass_fixer_is_fit_on_train_and_not_scanned() -> None:
+    import numpy as np
+
+    from scripts.evaluate_openml import compare_predictions
+
+    train = np.tile(np.eye(3) * 0.8 + 0.2 / 3, (2, 1)).astype(np.float32)
+    train_y = np.tile(np.eye(3), (2, 1)).astype(np.float32)
+    test = (np.eye(3) * 0.8 + 0.2 / 3).astype(np.float32)
+    test_y = np.eye(3).astype(np.float32)
+    result = compare_predictions("multiclass", train, train_y, test, test_y, np.array([0, 1, 2]))
+    assert result["method"] == "fixer"
+    assert result["baseline"] == 1.0
+    assert result["improved"] == 1.0
+    assert result["threshold"] is None
