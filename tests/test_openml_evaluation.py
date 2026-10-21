@@ -41,3 +41,17 @@ def test_sample_selects_exactly_n_ids_before_any_eligibility_check() -> None:
     assert sample_tasks(candidates, n=4, seed=seed) == expected
     assert sample_tasks(candidates, n=4, seed=seed) == expected
     assert sample_tasks(candidates, n=None, seed=seed) == candidates
+
+
+def test_classify_target_rejects_multilabel_and_missing_values() -> None:
+    import pandas as pd
+    import pytest
+
+    from scripts.evaluate_openml import classify_target
+
+    assert classify_target(pd.Series(["no", "yes", "no"])) == ("binary", ("no", "yes"))
+    assert classify_target(pd.Series(["b", "c", "a"])) == ("multiclass", ("a", "b", "c"))
+    with pytest.raises(ValueError, match="missing target"):
+        classify_target(pd.Series(["yes", None, "no"]))
+    with pytest.raises(ValueError, match="multilabel"):
+        classify_target(pd.DataFrame({"a": [0, 1], "b": [1, 0]}))
