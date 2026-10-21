@@ -1,0 +1,8 @@
+FROM python:3.12.11-slim@sha256:47ae396f09c1303b8653019811a8498470603d7ffefc29cb07c88f1f8cb3d19f
+
+RUN apt-get update && apt-get install -y --no-install-recommends default-jre-headless ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN python -m pip install --no-cache-dir numpy==2.3.1 pandas==2.3.0 scipy==1.16.0 scikit-learn==1.7.0
+RUN groupadd -g 10001 evaluator && useradd -u 10001 -g 10001 -M evaluator
+USER 10001:10001
+WORKDIR /opt
+CMD ["sleep", "infinity"]

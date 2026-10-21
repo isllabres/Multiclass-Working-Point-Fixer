@@ -210,6 +210,29 @@ def select_adapter(filename: str, flow_name: str) -> str:
     raise ValueError(f"unsupported model format/runtime: {filename} / {flow_name}")
 
 
+def docker_run_kwargs(image: str, input_dir: str, output_dir: str) -> dict[str, object]:
+    """Build a restricted, credential-free container configuration for model inference."""
+    return {
+        "image": image,
+        "detach": True,
+        "network_mode": "none",
+        "read_only": True,
+        "user": "10001:10001",
+        "environment": {},
+        "cap_drop": ["ALL"],
+        "privileged": False,
+        "security_opt": ["no-new-privileges:true"],
+        "pids_limit": 64,
+        "mem_limit": "2g",
+        "nano_cpus": 1_000_000_000,
+        "tmpfs": {"/tmp": "rw,noexec,nosuid,size=64m"},
+        "volumes": {
+            input_dir: {"bind": "/input", "mode": "ro"},
+            output_dir: {"bind": "/output", "mode": "rw"},
+        },
+    }
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse evaluation options; reject invalid types and negative sample sizes."""
     config = json.loads(_CONFIG.read_text(encoding="utf-8"))
