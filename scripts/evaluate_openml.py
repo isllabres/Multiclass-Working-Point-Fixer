@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterable
 
 import openml
+import numpy as np
 from openml.tasks import TaskType
 
 
@@ -36,6 +37,19 @@ def query_catalog() -> tuple[list[int], dict[str, str]]:
         "retrieved_at": datetime.now(timezone.utc).isoformat(),
         "filters": "task_type=supervised_classification(1); procedure_id in (5,6); procedure.type == holdout",
     }
+
+
+def sample_tasks(candidates: list[int], n: int | None, seed: int) -> list[int]:
+    """Choose IDs without replacement before attempting task eligibility checks.
+
+    Raises:
+        ValueError: If n is negative or exceeds the current candidate pool.
+    """
+    if n is not None and (n < 0 or n > len(candidates)):
+        raise ValueError(f"--n must be between 0 and {len(candidates)}")
+    if n is None:
+        return list(candidates)
+    return np.random.default_rng(seed).choice(candidates, size=n, replace=False).tolist()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
