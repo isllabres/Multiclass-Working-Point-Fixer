@@ -206,3 +206,10 @@ def test_aggregate_keeps_negative_gains_and_equal_task_weights() -> None:
     assert summary["overall"]["improved"] == 1
     assert summary["overall"]["decreased"] == 1
     assert summary["overall"]["unchanged"] == 1
+
+
+def test_breakdown_preserves_per_class_old_and_new_f1() -> None:
+    from scripts.evaluate_openml import class_breakdown
+
+    breakdown = class_breakdown([0, 1, 2, 2], [0, 0, 1, 2], [0, 1, 1, 2], ("a", "b", "c"))
+    assert breakdown == {"a": {"previous": 2 / 3, "new": 1.0}, "b": {"previous": 0.0, "new": 2 / 3}, "c": {"previous": 2 / 3, "new": 2 / 3}}
