@@ -497,10 +497,18 @@ def test_main_resumes_from_checkpoint_and_skips_completed_tasks(monkeypatch, tmp
     import scripts.evaluate_openml as evaluation
 
     audit = tmp_path / "audit.json"
+    settings = json.loads(Path(__file__).resolve().parents[1].joinpath("scripts", "openml_config.json").read_text(encoding="utf-8"))
     checkpoint = {
         "catalog": {"retrieved_at": "earlier", "filters": "procedure.id in (5,6)"},
         "catalog_candidates": 1,
-        "options": {"classification_type": "both", "n": 1, "seed": 41, "selected_task_ids": [7]},
+        "options": {
+            "classification_type": "both",
+            "n": 1,
+            "seed": 41,
+            "catalog_candidates": 1,
+            "selected_task_ids": [7],
+            "settings": settings,
+        },
         "tasks": [
             {
                 "task_id": 7,
@@ -536,10 +544,18 @@ def test_main_retries_errored_tasks_from_checkpoint_and_keeps_terminal_rows(monk
     import scripts.evaluate_openml as evaluation
 
     audit = tmp_path / "audit.json"
+    settings = json.loads(Path(__file__).resolve().parents[1].joinpath("scripts", "openml_config.json").read_text(encoding="utf-8"))
     checkpoint = {
         "catalog": {"retrieved_at": "earlier", "filters": "procedure.id in (5,6)"},
         "catalog_candidates": 2,
-        "options": {"classification_type": "both", "n": 2, "seed": 41, "selected_task_ids": [7, 8]},
+        "options": {
+            "classification_type": "both",
+            "n": 2,
+            "seed": 41,
+            "catalog_candidates": 2,
+            "selected_task_ids": [7, 8],
+            "settings": settings,
+        },
         "tasks": [
             {"task_id": 7, "status": "error", "reason": "connection reset"},
             {"task_id": 8, "status": "excluded", "reason": "checkpoint-preserved exclusion"},
@@ -644,3 +660,86 @@ def test_main_resumes_after_blocker_record_when_catalog_recovers(monkeypatch, tm
     assert "blocker" not in recorded
     assert recorded["tasks"][0]["status"] == "excluded"
     assert recorded["tasks"][0]["reason"] == "no candidate runs"
+
+
+def test_main_fails_closed_on_malformed_checkpoint_json(monkeypatch, tmp_path) -> None:
+    """Unparseable checkpoint JSON refuses the run instead of overwriting results."""
+    import json
+    import pytest
+
+    import scripts.evaluate_openml as evaluation
+
+    audit = tmp_path / "audit.json"
+    audit.write_text('{"options": {"classification_type": "both", "tasks": [', encoding="utf-8")
+    original = audit.read_text()
+
+    def get_task(task_id, **kwargs):
+        raise AssertionError(f"task {task_id} must not be attempted on a malformed checkpoint")
+
+    monkeypatch.setattr(evaluation, "query_catalog", lambda: ([11], {"retrieved_at": "now", "filters": "test"}))
+    monkeypatch.setattr(evaluation.openml.tasks, "get_task", get_task)
+    monkeypatch.setattr(evaluation.docker, "from_env", lambda: pytest.fail("Docker must not start on a malformed checkpoint"))
+    with pytest.raises(ValueError, match="not valid JSON"):
+        evaluation.main(
+            ["--n", "1", "--seed", "41", "--report", str(tmp_path / "report.html"), "--audit", str(audit)]
+        )
+    assert audit.read_text() == original
+    assert not (tmp_path / "report.html").exists()
+
+
+def test_main_rejects_incomplete_checkpoint(monkeypatch, tmp_path) -> None:
+    """A checkpoint missing required invocation options is never mixed with new results."""
+    import json
+    import pytest
+
+    import scripts.evaluate_openml as evaluation
+
+    audit = tmp_path / "audit.json"
+    checkpoint = {
+        "catalog": {"retrieved_at": "earlier", "filters": "procedure.id in (5,6)"},
+        "catalog_candidates": 1,
+        "options": {"classification_type": "both", "n": 1, "seed": 41, "selected_task_ids": [11]},
+        "tasks": [{"task_id": 11, "kind": "binary", "status": "evaluated", "run_id": 5, "baseline": 0.5, "improved": 0.6}],
+    }
+    audit.write_text(json.dumps(checkpoint), encoding="utf-8")
+    monkeypatch.setattr(evaluation, "query_catalog", lambda: ([11], {"retrieved_at": "now", "filters": "test"}))
+    monkeypatch.setattr(evaluation.docker, "from_env", lambda: pytest.fail("Docker must not start on an incomplete checkpoint"))
+    with pytest.raises(ValueError, match="different invocation"):
+        evaluation.main(
+            ["--n", "1", "--seed", "41", "--report", str(tmp_path / "report.html"), "--audit", str(audit)]
+        )
+    assert json.loads(audit.read_text())["tasks"][0]["run_id"] == 5
+    assert not (tmp_path / "report.html").exists()
+
+
+def test_main_rejects_checkpoint_with_different_fixer_settings(monkeypatch, tmp_path) -> None:
+    """A checkpoint recorded with other fixer settings must not be resumed."""
+    import json
+    import pytest
+
+    import scripts.evaluate_openml as evaluation
+
+    audit = tmp_path / "audit.json"
+    settings = json.loads(Path(__file__).resolve().parents[1].joinpath("scripts", "openml_config.json").read_text(encoding="utf-8"))
+    stale = dict(settings, fixer_epochs=settings["fixer_epochs"] + 1)
+    checkpoint = {
+        "catalog": {"retrieved_at": "earlier", "filters": "procedure.id in (5,6)"},
+        "catalog_candidates": 1,
+        "options": {
+            "classification_type": "both",
+            "n": 1,
+            "seed": 41,
+            "selected_task_ids": [11],
+            "settings": stale,
+        },
+        "tasks": [{"task_id": 11, "kind": "binary", "status": "evaluated", "run_id": 5, "baseline": 0.5, "improved": 0.6}],
+    }
+    audit.write_text(json.dumps(checkpoint), encoding="utf-8")
+    monkeypatch.setattr(evaluation, "query_catalog", lambda: ([11], {"retrieved_at": "now", "filters": "test"}))
+    monkeypatch.setattr(evaluation.docker, "from_env", lambda: pytest.fail("Docker must not start on a settings mismatch"))
+    with pytest.raises(ValueError, match="different invocation"):
+        evaluation.main(
+            ["--n", "1", "--seed", "41", "--report", str(tmp_path / "report.html"), "--audit", str(audit)]
+        )
+    assert json.loads(audit.read_text())["tasks"][0]["run_id"] == 5
+    assert not (tmp_path / "report.html").exists()

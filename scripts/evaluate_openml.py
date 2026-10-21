@@ -665,15 +665,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.audit.exists():
         try:
             checkpoint = json.loads(args.audit.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            checkpoint = {}
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"recorded audit is not valid JSON; refusing to overwrite possible results: {error}"
+            ) from error
+        recorded_rows = checkpoint.get("tasks", []) if isinstance(checkpoint, dict) else []
+        if checkpoint.get("blocker") and not recorded_rows:
+            checkpoint = {}  # a blocker-only audit holds no completed work to resume
         if checkpoint:
             recorded_options = checkpoint.get("options", {})
-            for key in ("classification_type", "n", "seed", "catalog_candidates", "selected_task_ids"):
-                if key in recorded_options and recorded_options[key] != options.get(key):
+            for key in ("classification_type", "n", "seed", "catalog_candidates", "selected_task_ids", "settings"):
+                if key not in recorded_options or recorded_options[key] != options.get(key):
                     raise ValueError("recorded checkpoint was created for a different invocation")
             rows = [
-                row for row in checkpoint.get("tasks", [])
+                row for row in recorded_rows
                 if row.get("status") in ("evaluated", "excluded")
             ]
     with require_docker() as container:
