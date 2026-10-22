@@ -97,26 +97,22 @@ def read_procedure(xml: str) -> tuple[int, str]:
 def query_catalog(attempts: int = 3) -> tuple[list[int], dict[str, str]]:
     """Fetch current classification tasks and verify each holdout's API procedure type.
 
-    Transient server errors (e.g. 503) are retried with a delay so one failing
-    OpenML request cannot shrink the candidate pool.
+    The raw OpenML task-list XML is parsed directly rather than through
+    ``openml.tasks.list_tasks`` because the installed SDK's procedure resolver
+    cannot look up unknown procedure IDs (e.g. 33) and silently drops those
+    tasks with a misleading "invalid xml" warning. Transient server errors
+    (e.g. 503) are retried with a delay so one failing OpenML request cannot
+    shrink the candidate pool.
     """
-    for attempt in range(1, attempts + 1):
-        try:
-            listing = openml.tasks.list_tasks(
-                task_type=TaskType.SUPERVISED_CLASSIFICATION, output_format="dataframe"
-            )
-            break
-        except OpenMLServerError as error:
-            if attempt == attempts or "503" not in str(error):
-                raise
-            time.sleep(min(2 ** attempt, 30))
-    else:
-        raise RuntimeError("unreachable")
-    candidates = listing.loc[
-        listing["estimation_procedure"].isin(("10% Holdout set", "33% Holdout set"))
+    listing_xml = _fetch_task_list(attempts)
+    tasks = _parse_task_list(listing_xml)
+    candidates = [
+        task for task in tasks
+        if task["task_type"] == "Supervised Classification"
+        and task.get("estimation_procedure_id") in (5, 6)
     ]
     verified = []
-    for task_id in candidates.index:
+    for task_id in sorted(task["task_id"] for task in candidates):
         try:
             verify_procedure(int(task_id))
         except ValueError:
@@ -124,8 +120,50 @@ def query_catalog(attempts: int = 3) -> tuple[list[int], dict[str, str]]:
         verified.append(int(task_id))
     return sorted(verified), {
         "retrieved_at": datetime.now(timezone.utc).isoformat(),
-        "filters": "task_type=supervised_classification(1); listing procedure names 10%/33% Holdout set; XML procedure.id in (5,6) and procedure.type == holdout",
+        "filters": "task_type=supervised_classification(1); raw task-list procedure.id in (5,6); XML procedure.type == holdout",
     }
+
+
+def _fetch_task_list(attempts: int) -> str:
+    """Download the raw supervised-classification task-list XML with retries."""
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            response = requests.get(f"{openml.config.server}/task/list/type/1", timeout=30)
+            response.raise_for_status()
+            return response.text
+        except (requests.ConnectionError, requests.Timeout) as error:
+            last_error = error
+        except requests.HTTPError as error:
+            status_code = getattr(getattr(error, "response", None), "status_code", None)
+            if status_code is not None and status_code < 500:
+                raise
+            last_error = error
+        if attempt < attempts:
+            time.sleep(min(2 ** attempt, 30))
+    assert last_error is not None
+    raise last_error
+
+
+def _parse_task_list(listing_xml: str) -> list[dict[str, object]]:
+    """Parse a raw OpenML task-list document into procedure metadata entries."""
+    root = ElementTree.fromstring(listing_xml)
+    namespace = {"oml": "http://openml.org/openml"}
+    tasks: list[dict[str, object]] = []
+    for entry in root.findall("oml:task", namespace):
+        task_id = entry.findtext("oml:task_id", namespaces=namespace)
+        task_type = entry.findtext("oml:task_type", namespaces=namespace)
+        procedure_input = next(
+            (node for node in entry.findall("oml:input", namespace) if node.get("name") == "estimation_procedure"),
+            None,
+        )
+        procedure_id = procedure_input.text.strip() if procedure_input is not None and procedure_input.text else None
+        tasks.append({
+            "task_id": int(task_id) if task_id is not None else None,
+            "task_type": task_type,
+            "estimation_procedure_id": int(procedure_id) if procedure_id is not None else None,
+        })
+    return tasks
 
 
 def verify_procedure(task_id: int) -> None:
@@ -677,6 +715,10 @@ def main(argv: list[str] | None = None) -> int:
         args.audit.parent.mkdir(parents=True, exist_ok=True)
         args.audit.write_text(json.dumps(checkpoint, indent=2, default=str), encoding="utf-8")
         return 1
+    if args.n is not None and args.n > len(catalog):
+        raise SystemExit(
+            f"--n {args.n} is too large: candidate pool holds only {len(catalog)} tasks"
+        )
     selected = sample_tasks(catalog, args.n, args.seed)
     options = {
         "classification_type": args.classification_type,

@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from openml.exceptions import OpenMLServerError
 
 
@@ -18,6 +20,15 @@ def test_entrypoint_exposes_modes_and_paths() -> None:
     assert result.returncode == 0
     for flag in ("--classification-type", "--n", "--seed", "--report", "--audit"):
         assert flag in result.stdout
+
+
+def test_entrypoint_rejects_n_larger_than_candidate_pool(monkeypatch) -> None:
+    """A sample larger than the candidate pool is rejected with a clear error."""
+    import scripts.evaluate_openml as evaluation
+
+    monkeypatch.setattr(evaluation, "query_catalog", lambda: ([7, 8], {}))
+    with pytest.raises(SystemExit, match="candidate pool holds only 2 tasks"):
+        evaluation.main(["--n", "3", "--seed", "0"])
 
 
 def test_openml_client_fails_fast_instead_of_hanging_on_a_dead_host() -> None:
