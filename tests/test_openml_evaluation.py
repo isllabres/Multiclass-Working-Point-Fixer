@@ -387,11 +387,14 @@ def test_catalog_retries_transient_openml_503_without_changing_candidate_pool(mo
 
     monkeypatch.setattr(evaluation.time, "sleep", lambda _: None)
     monkeypatch.setattr(evaluation.openml.tasks, "list_tasks", _no_sdk_list_tasks)
-    get, calls = _catalog_client(_task_list_xml([(7, 6), (8, 33)]), list_failures=(OpenMLServerError("Status code: 503"),))
+    import requests
+
+    failure = requests.HTTPError("Status code: 503", response=SimpleNamespace(status_code=503))
+    get, calls = _catalog_client(_task_list_xml([(7, 6), (8, 33)]), list_failures=(failure,))
     monkeypatch.setattr(evaluation.requests, "get", get)
     ids, filters = evaluation.query_catalog()
     assert ids == [7]
-    assert calls.count("/task/list") == 2
+    assert sum("/task/list" in call for call in calls) == 2
     assert "procedure.id in (5,6)" in filters["filters"]
 
 
@@ -457,10 +460,12 @@ def _catalog_client(list_xml: str, task_xml=None, list_failures: tuple = ()):
     def get(url, **kwargs):
         calls.append(url)
         if "/task/list" in url:
-            if served["list"] < len(list_failures):
-                raise list_failures[served["list"]]
-            served["list"] += 1
-            return SimpleNamespace(text=list_xml, raise_for_status=lambda: None)
+            try:
+                if served["list"] < len(list_failures):
+                    raise list_failures[served["list"]]
+                return SimpleNamespace(text=list_xml, raise_for_status=lambda: None)
+            finally:
+                served["list"] += 1
         task_id = int(url.rsplit("/", 1)[-1])
         xml = task_xml(task_id) if task_xml is not None else _task_xml(task_id, 6)
         return SimpleNamespace(text=xml, raise_for_status=lambda: None)
