@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Iterable
+from typing import Iterable, TypedDict
 from xml.etree import ElementTree
 
 import openml
@@ -94,7 +94,22 @@ def read_procedure(xml: str) -> tuple[int, str]:
     raise ValueError("task metadata has no estimation procedure ID/type")
 
 
-def query_catalog(attempts: int = 3) -> tuple[list[int], dict[str, str]]:
+class CatalogExclusion(TypedDict):
+    """One catalog entry rejected by a documented rule, with its task ID and reason."""
+
+    task_id: int | None
+    reason: str
+
+
+class CatalogMetadata(TypedDict):
+    """Catalog retrieval record: exact filters, timestamp, and explicit exclusions."""
+
+    retrieved_at: str
+    filters: str
+    exclusions: list[CatalogExclusion]
+
+
+def query_catalog(attempts: int = 3) -> tuple[list[int], CatalogMetadata]:
     """Fetch current classification tasks and verify each holdout's API procedure type.
 
     The raw OpenML task-list XML is parsed directly rather than through
@@ -626,7 +641,7 @@ def class_breakdown(
 
 
 def render_report(
-    rows: list[dict[str, object]], catalog: dict[str, str], options: dict[str, object]
+    rows: list[dict[str, object]], catalog: CatalogMetadata, options: dict[str, object]
 ) -> str:
     """Render a self-contained Plotly report, including an empty evaluation."""
     evaluated = [row for row in rows if row.get("status") == "evaluated"]
