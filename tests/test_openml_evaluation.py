@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from openml.exceptions import OpenMLServerError
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "evaluate_openml.py"
 
@@ -268,10 +270,11 @@ def test_sample_attempts_exact_n_tasks_and_audits_exclusions(monkeypatch, tmp_pa
     import pandas as pd
     import scripts.evaluate_openml as evaluation
 
-    listing = pd.DataFrame({"estimation_procedure": ["33% Holdout set"] * 3}, index=[7, 8, 9])
-    xml = '<oml:task xmlns:oml="http://openml.org/openml"><oml:input name="estimation_procedure"><oml:estimation_procedure><oml:id>6</oml:id><oml:type>holdout</oml:type></oml:estimation_procedure></oml:input></oml:task>'
-    monkeypatch.setattr(evaluation.openml.tasks, "list_tasks", lambda **kwargs: listing)
-    monkeypatch.setattr(evaluation.requests, "get", lambda *args, **kwargs: SimpleNamespace(text=xml, raise_for_status=lambda: None))
+    list_xml = _task_list_xml([(7, 6), (8, 6), (9, 6)])
+    monkeypatch.setattr(evaluation.time, "sleep", lambda _: None)
+    monkeypatch.setattr(evaluation.openml.tasks, "list_tasks", _no_sdk_list_tasks)
+    get, _ = _catalog_client(list_xml)
+    monkeypatch.setattr(evaluation.requests, "get", get)
     monkeypatch.setattr(evaluation.openml.tasks, "get_task", lambda tid, **kwargs: SimpleNamespace(
         task_id=tid, dataset_id=12, target_name="class", get_split_dimensions=lambda: (1, 1, 1),
         get_train_test_split_indices=lambda: ([0, 1, 2], [3, 4, 5]),
@@ -347,9 +350,18 @@ def test_sample_evaluates_archived_run_with_train_only_docker_inference(monkeypa
     feature = pd.DataFrame({"x": [-3., -2., 2., 3., -1., 1., 2.5, -2.5]})
     target = pd.Series(["a", "a", "b", "b", "a", "b", "b", "a"])
     model_bytes = pickle.dumps(LogisticRegression().fit(feature.iloc[:6], target.iloc[:6]))
-    xml = '<oml:task xmlns:oml="http://openml.org/openml"><oml:input name="estimation_procedure"><oml:estimation_procedure><oml:id>6</oml:id><oml:type>holdout</oml:type></oml:estimation_procedure></oml:input></oml:task>'
-    monkeypatch.setattr(evaluation.openml.tasks, "list_tasks", lambda **kwargs: pd.DataFrame({"estimation_procedure": ["33% Holdout set"]}, index=[7]))
-    monkeypatch.setattr(evaluation.requests, "get", lambda url, **kwargs: SimpleNamespace(text=xml, content=model_bytes, raise_for_status=lambda: None))
+    model_response = SimpleNamespace(text="", content=model_bytes, raise_for_status=lambda: None)
+
+    def get(url, **kwargs):
+        if "/data/download/" in url:
+            return model_response
+        if "/task/list" in url:
+            return SimpleNamespace(text=_task_list_xml([(7, 6)]), raise_for_status=lambda: None)
+        return SimpleNamespace(text=_task_xml(int(url.rsplit("/", 1)[-1]), 6), raise_for_status=lambda: None)
+
+    monkeypatch.setattr(evaluation.time, "sleep", lambda _: None)
+    monkeypatch.setattr(evaluation.openml.tasks, "list_tasks", _no_sdk_list_tasks)
+    monkeypatch.setattr(evaluation.requests, "get", get)
     monkeypatch.setattr(evaluation.openml.tasks, "get_task", lambda tid, **kwargs: SimpleNamespace(
         task_id=tid, dataset_id=12, target_name="label", get_split_dimensions=lambda: (1, 1, 1),
         get_train_test_split_indices=lambda: ([0, 1, 2, 3, 4, 5], [6, 7]),
@@ -371,24 +383,15 @@ def test_sample_evaluates_archived_run_with_train_only_docker_inference(monkeypa
 
 
 def test_catalog_retries_transient_openml_503_without_changing_candidate_pool(monkeypatch) -> None:
-    import pandas as pd
-    from openml.exceptions import OpenMLServerError
     import scripts.evaluate_openml as evaluation
 
-    calls = []
-    def list_tasks(**kwargs):
-        calls.append(kwargs)
-        if len(calls) == 1:
-            raise OpenMLServerError("Status code: 503")
-        return pd.DataFrame({"estimation_procedure": ["33% Holdout set"]}, index=[7])
-
-    xml = '<oml:task xmlns:oml="http://openml.org/openml"><oml:input name="estimation_procedure"><oml:estimation_procedure><oml:id>6</oml:id><oml:type>holdout</oml:type></oml:estimation_procedure></oml:input></oml:task>'
-    monkeypatch.setattr(evaluation.openml.tasks, "list_tasks", list_tasks)
-    monkeypatch.setattr(evaluation.requests, "get", lambda *args, **kwargs: SimpleNamespace(text=xml, raise_for_status=lambda: None))
     monkeypatch.setattr(evaluation.time, "sleep", lambda _: None)
+    monkeypatch.setattr(evaluation.openml.tasks, "list_tasks", _no_sdk_list_tasks)
+    get, calls = _catalog_client(_task_list_xml([(7, 6), (8, 33)]), list_failures=(OpenMLServerError("Status code: 503"),))
+    monkeypatch.setattr(evaluation.requests, "get", get)
     ids, filters = evaluation.query_catalog()
     assert ids == [7]
-    assert len(calls) == 2
+    assert calls.count("/task/list") == 2
     assert "procedure.id in (5,6)" in filters["filters"]
 
 
@@ -405,6 +408,64 @@ def _sandbox_client() -> SimpleNamespace:
         containers=SimpleNamespace(run=lambda **kwargs: container),
         close=lambda: None,
     )
+
+
+def _task_list_xml(tasks: list[tuple[int, int | None]]) -> str:
+    """Build a raw OpenML task-list XML document with (task_id, procedure_id) entries."""
+    entries = []
+    for task_id, procedure_id in tasks:
+        procedure = (
+            ""
+            if procedure_id is None
+            else f'<oml:input name="estimation_procedure">{procedure_id}</oml:input>'
+        )
+        entries.append(
+            "<oml:task>"
+            f"<oml:task_id>{task_id}</oml:task_id><oml:task_type_id>1</oml:task_type_id>"
+            f"<oml:did>100{task_id}</oml:did><oml:name>dataset-{task_id}</oml:name>"
+            "<oml:task_type>Supervised Classification</oml:task_type><oml:status>active</oml:status>"
+            f"{procedure}</oml:task>"
+        )
+    return '<oml:tasks xmlns:oml="http://openml.org/openml">' + "".join(entries) + "</oml:tasks>"
+
+
+def _task_xml(task_id: int, procedure_id: int, procedure_type: str = "holdout") -> str:
+    """Build the per-task XML served for a single task's verification."""
+    return (
+        '<oml:task xmlns:oml="http://openml.org/openml">'
+        '<oml:input name="estimation_procedure"><oml:estimation_procedure>'
+        f"<oml:id>{procedure_id}</oml:id><oml:type>{procedure_type}</oml:type>"
+        "</oml:estimation_procedure></oml:input></oml:task>"
+    )
+
+
+def _no_sdk_list_tasks(**kwargs):
+    """Reject any use of the SDK task listing: the catalog must parse raw XML."""
+    raise AssertionError("openml.tasks.list_tasks must not be used; parse raw task-list XML instead")
+
+
+def _catalog_client(list_xml: str, task_xml=None, list_failures: tuple = ()):
+    """Stub requests.get to serve the task list and per-task XML by URL.
+
+    task_xml: optional callable task_id -> XML for the per-task endpoint;
+    it defaults to a procedure-6 holdout task. list_failures: exceptions raised
+    by the first list calls before the listing is served.
+    """
+    calls: list[str] = []
+    served = {"list": 0}
+
+    def get(url, **kwargs):
+        calls.append(url)
+        if "/task/list" in url:
+            if served["list"] < len(list_failures):
+                raise list_failures[served["list"]]
+            served["list"] += 1
+            return SimpleNamespace(text=list_xml, raise_for_status=lambda: None)
+        task_id = int(url.rsplit("/", 1)[-1])
+        xml = task_xml(task_id) if task_xml is not None else _task_xml(task_id, 6)
+        return SimpleNamespace(text=xml, raise_for_status=lambda: None)
+
+    return get, calls
 
 
 def test_verify_procedure_retries_transient_request_failures(monkeypatch) -> None:
