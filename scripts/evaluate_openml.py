@@ -106,21 +106,35 @@ def query_catalog(attempts: int = 3) -> tuple[list[int], dict[str, str]]:
     """
     listing_xml = _fetch_task_list(attempts)
     tasks = _parse_task_list(listing_xml)
-    candidates = [
-        task for task in tasks
-        if task["task_type"] == "Supervised Classification"
-        and task.get("estimation_procedure_id") in (5, 6)
-    ]
+    exclusions: list[dict[str, object]] = []
+    candidates = []
+    for task in tasks:
+        if task["task_type"] != "Supervised Classification":
+            exclusions.append({
+                "task_id": task["task_id"],
+                "reason": f"task type {task['task_type']} is not supervised classification",
+            })
+            continue
+        procedure_id = task.get("estimation_procedure_id")
+        if procedure_id not in (5, 6):
+            exclusions.append({
+                "task_id": task["task_id"],
+                "reason": f"estimation procedure {procedure_id} is not in (5, 6)",
+            })
+            continue
+        candidates.append(task)
     verified = []
     for task_id in sorted(task["task_id"] for task in candidates):
         try:
             verify_procedure(int(task_id))
-        except ValueError:
+        except ValueError as error:
+            exclusions.append({"task_id": task_id, "reason": str(error)})
             continue
         verified.append(int(task_id))
     return sorted(verified), {
         "retrieved_at": datetime.now(timezone.utc).isoformat(),
         "filters": "task_type=supervised_classification(1); raw task-list procedure.id in (5,6); XML procedure.type == holdout",
+        "exclusions": exclusions,
     }
 
 

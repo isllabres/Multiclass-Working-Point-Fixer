@@ -409,6 +409,30 @@ def test_catalog_retries_transient_openml_503_without_changing_candidate_pool(mo
     assert "procedure.id in (5,6)" in filters["filters"]
 
 
+def test_query_catalog_records_exclusions_for_ineligible_procedures(monkeypatch) -> None:
+    """Procedure 33 and non-holdout tasks must be recorded with IDs and reasons."""
+    import scripts.evaluate_openml as evaluation
+
+    monkeypatch.setattr(evaluation.time, "sleep", lambda _: None)
+    monkeypatch.setattr(evaluation.openml.tasks, "list_tasks", _no_sdk_list_tasks)
+
+    def task_xml(task_id: int) -> str:
+        if task_id == 9:
+            return _task_xml(task_id, 6, "crossvalidation")
+        return _task_xml(task_id, 5 if task_id == 7 else 6)
+
+    get, _ = _catalog_client(
+        _task_list_xml([(7, 5), (8, 33), (9, 6), (10, 6)]), task_xml=task_xml
+    )
+    monkeypatch.setattr(evaluation.requests, "get", get)
+    ids, metadata = evaluation.query_catalog()
+    assert ids == [7, 10]
+    exclusions = {entry["task_id"]: entry["reason"] for entry in metadata["exclusions"]}
+    assert set(exclusions) == {8, 9}
+    assert "33" in exclusions[8]
+    assert "task 9" in exclusions[9] and "crossvalidation" in exclusions[9]
+
+
 def _sandbox_client() -> SimpleNamespace:
     """Build a fake Docker client like the sandbox test's inline one."""
     container = SimpleNamespace(
