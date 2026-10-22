@@ -433,6 +433,38 @@ def test_query_catalog_records_exclusions_for_ineligible_procedures(monkeypatch)
     assert "task 9" in exclusions[9] and "crossvalidation" in exclusions[9]
 
 
+def test_parsed_task_entries_and_exclusions_follow_the_declared_structures(monkeypatch) -> None:
+    """_parse_task_list must yield narrowed CatalogTask entries, and query_catalog must
+    build CatalogExclusion exclusions, so the structured contract is truthful."""
+    import typing
+
+    import scripts.evaluate_openml as evaluation
+
+    catalog_task = getattr(evaluation, "CatalogTask", None)
+    assert catalog_task is not None, "evaluation must declare a CatalogTask type"
+    hints = typing.get_type_hints(evaluation._parse_task_list)
+    assert hints["return"] == list[catalog_task], (
+        "_parse_task_list must return narrowed CatalogTask entries, not loose dicts"
+    )
+
+    parsed = evaluation._parse_task_list(_task_list_xml([(7, 6), (8, 33)]))
+    for entry in parsed:
+        assert set(entry) == {"task_id", "task_type", "estimation_procedure_id"}
+        assert isinstance(entry["task_id"], int)
+        assert isinstance(entry["task_type"], str)
+        assert isinstance(entry["estimation_procedure_id"], int)
+
+    monkeypatch.setattr(evaluation.time, "sleep", lambda _: None)
+    monkeypatch.setattr(evaluation.openml.tasks, "list_tasks", _no_sdk_list_tasks)
+    get, _ = _catalog_client(_task_list_xml([(7, 6), (8, 33)]))
+    monkeypatch.setattr(evaluation.requests, "get", get)
+    _, metadata = evaluation.query_catalog()
+    for exclusion in metadata["exclusions"]:
+        assert set(exclusion) == {"task_id", "reason"}
+        assert isinstance(exclusion["task_id"], int)
+        assert isinstance(exclusion["reason"], str)
+
+
 def _sandbox_client() -> SimpleNamespace:
     """Build a fake Docker client like the sandbox test's inline one."""
     container = SimpleNamespace(
