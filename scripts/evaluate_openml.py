@@ -101,6 +101,14 @@ class CatalogExclusion(TypedDict):
     reason: str
 
 
+class CatalogTask(TypedDict):
+    """One parsed task-list entry: ID, type label, and estimation procedure ID."""
+
+    task_id: int | None
+    task_type: str | None
+    estimation_procedure_id: int | None
+
+
 class CatalogMetadata(TypedDict):
     """Catalog retrieval record: exact filters, timestamp, and explicit exclusions."""
 
@@ -121,29 +129,33 @@ def query_catalog(attempts: int = 3) -> tuple[list[int], CatalogMetadata]:
     """
     listing_xml = _fetch_task_list(attempts)
     tasks = _parse_task_list(listing_xml)
-    exclusions: list[dict[str, object]] = []
+    exclusions: list[CatalogExclusion] = []
     candidates = []
     for task in tasks:
         if task["task_type"] != "Supervised Classification":
-            exclusions.append({
-                "task_id": task["task_id"],
-                "reason": f"task type {task['task_type']} is not supervised classification",
-            })
+            exclusions.append(
+                CatalogExclusion(
+                    task_id=task["task_id"],
+                    reason=f"task type {task['task_type']} is not supervised classification",
+                )
+            )
             continue
         procedure_id = task.get("estimation_procedure_id")
         if procedure_id not in (5, 6):
-            exclusions.append({
-                "task_id": task["task_id"],
-                "reason": f"estimation procedure {procedure_id} is not in (5, 6)",
-            })
+            exclusions.append(
+                CatalogExclusion(
+                    task_id=task["task_id"],
+                    reason=f"estimation procedure {procedure_id} is not in (5, 6)",
+                )
+            )
             continue
         candidates.append(task)
     verified = []
-    for task_id in sorted(task["task_id"] for task in candidates):
+    for task_id in sorted(task["task_id"] for task in candidates if task["task_id"] is not None):
         try:
             verify_procedure(int(task_id))
         except ValueError as error:
-            exclusions.append({"task_id": task_id, "reason": str(error)})
+            exclusions.append(CatalogExclusion(task_id=task_id, reason=str(error)))
             continue
         verified.append(int(task_id))
     return sorted(verified), {
@@ -174,11 +186,11 @@ def _fetch_task_list(attempts: int) -> str:
     raise last_error
 
 
-def _parse_task_list(listing_xml: str) -> list[dict[str, object]]:
+def _parse_task_list(listing_xml: str) -> list[CatalogTask]:
     """Parse a raw OpenML task-list document into procedure metadata entries."""
     root = ElementTree.fromstring(listing_xml)
     namespace = {"oml": "http://openml.org/openml"}
-    tasks: list[dict[str, object]] = []
+    tasks: list[CatalogTask] = []
     for entry in root.findall("oml:task", namespace):
         task_id = entry.findtext("oml:task_id", namespaces=namespace)
         task_type = entry.findtext("oml:task_type", namespaces=namespace)
@@ -187,11 +199,13 @@ def _parse_task_list(listing_xml: str) -> list[dict[str, object]]:
             None,
         )
         procedure_id = procedure_input.text.strip() if procedure_input is not None and procedure_input.text else None
-        tasks.append({
-            "task_id": int(task_id) if task_id is not None else None,
-            "task_type": task_type,
-            "estimation_procedure_id": int(procedure_id) if procedure_id is not None else None,
-        })
+        tasks.append(
+            CatalogTask(
+                task_id=int(task_id) if task_id is not None else None,
+                task_type=task_type,
+                estimation_procedure_id=int(procedure_id) if procedure_id is not None else None,
+            )
+        )
     return tasks
 
 
